@@ -1,0 +1,14 @@
+import { chromium } from 'playwright';
+import path from 'path';
+const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const [,, out = '/tmp/ps.png', query = '', wait = '1500', w = '1920', h = '1080'] = process.argv;
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: +w, height: +h } });
+const errs = [];
+page.on('pageerror', e => errs.push(e.message));
+page.on('console', m => { if (m.type() === 'error') errs.push(m.text()); });
+await page.goto('file://' + root + '/index.html?nogeo&label=0&' + query);
+await page.waitForTimeout(+wait);
+await page.screenshot({ path: out });
+if (errs.length) console.log('ERRORS:\n' + errs.join('\n'));
+await browser.close();

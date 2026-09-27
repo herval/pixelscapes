@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pixelscapes</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #05061a; overflow: hidden; }
+    canvas { display: block; width: 100vw; height: 100vh; image-rendering: pixelated; }
+    #help {
+      position: fixed; right: 16px; bottom: 16px; display: none; padding: 14px 18px; border-radius: 6px;
+      background: rgba(8, 10, 30, 0.85); color: #e8e6f4; font: 13px/1.6 ui-monospace, Menlo, monospace;
+    }
+    #help.show { display: block; }
+    #help b { color: #ffd57e; font-weight: normal; }
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="help">
+    <b>E</b> random event · <b>N</b> cycle through events<br>
+    <b>[</b> / <b>]</b> time −/+ 30 min · <b>\</b> back to now<br>
+    <b>P</b> pause pan · <b>F</b> fullscreen · <b>D</b> debug · <b>H</b> help<br>
+    double-click: surprise
+  </div>
+  <script src="js/util.js"></script>
+  <script src="js/sky.js"></script>
+  <script src="js/city.js"></script>
+  <script src="js/nyc.js"></script>
+  <script src="js/events.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
