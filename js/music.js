@@ -160,6 +160,10 @@
       this.hp = c.createBiquadFilter(); this.hp.type = 'highpass'; this.hp.frequency.value = 35;
       this.bus = g(1);
       this.bus.connect(this.lp).connect(this.hp).connect(this.sat).connect(this.comp).connect(this.master).connect(c.destination);
+      // analyser for the on-screen equalizer
+      this.analyser = c.createAnalyser(); this.analyser.fftSize = 256; this.analyser.smoothingTimeConstant = 0.6;
+      this.master.connect(this.analyser);
+      this.freq = new Uint8Array(this.analyser.frequencyBinCount);
       this.fade = g(1); // per-track fade in/out
       this.fade.connect(this.bus);
       this.duck = g(1); // sidechain pump from the kick
@@ -245,6 +249,19 @@
     }
 
     next() { this.forceNext = true; }
+
+    // Loudness of `n` bands (low to high), 0..1, for a tiny equalizer.
+    levels(n) {
+      this.analyser.getByteFrequencyData(this.freq);
+      const out = [], edges = [1, 4, 12, 40, 110];
+      for (let b = 0; b < n; b++) {
+        const a = edges[Math.min(b, edges.length - 2)], z = edges[Math.min(b + 1, edges.length - 1)];
+        let m = 0;
+        for (let i = a; i < z; i++) m = Math.max(m, this.freq[i]);
+        out.push(m / 255);
+      }
+      return out;
+    }
 
     // ---- instruments ------------------------------------------------------------------------
 

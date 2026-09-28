@@ -59,7 +59,9 @@ An endless lo-fi radio, generated entirely in code with the Web Audio API (no sa
 - **Every track is new:** each gets its own key, tempo, chord progression, grooves, motif and structure (intro, verse, chorus, break, outro), plus a generated name. When one ends, the next is generated.
 - **Follows the scene:** slower, darker and more often minor at night and in the rain, with the rain itself mixed in. Celesta melodies are more likely in winter.
 
-Press `M` to turn it on or off (it's remembered), `T` for the next track, and `−` / `+` for volume. `?music=1` starts it on load and `?music=0` disables it. Browsers only allow sound after a click or keypress, so if autoplay is blocked it shows "click or press M for music".
+Move the mouse and a small player appears in the bottom-right corner. It has a play/stop button, the song name with a live equalizer, and a skip button, and scrolling over it changes the volume. It also appears for a few seconds when a new song starts, then fades out. `?nowplaying=always` keeps it on screen and `?nowplaying=off` hides it.
+
+Keyboard: `M` turns music on or off (it's remembered), `T` skips to the next track, and `−` / `+` change the volume. `?music=1` starts it on load and `?music=0` disables it. Browsers only allow sound after a click or keypress, so if autoplay is blocked it shows "click or press M for music".
 
 `node tools/render-music.mjs out.wav 180 7 '{"night":1,"rain":0.5}'` renders a track offline to a WAV file (duration, seed, mood) and prints level stats.
 
@@ -88,6 +90,7 @@ Press `M` to turn it on or off (it's remembered), `T` for the next track, and `�
 | `date` | today | preview a date (seasons, holidays), e.g. `date=2026-10-31` |
 | `units` | auto | `c` or `f` for the caption temperature |
 | `music` | remembered | `1` to play the lo-fi radio, `0` to disable it |
+| `nowplaying` | `auto` | music widget: `auto` (on mouse move / new song), `always`, `off` |
 | `debug` | | show a debug overlay |
 
 ## Keys

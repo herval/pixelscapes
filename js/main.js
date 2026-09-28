@@ -25,6 +25,7 @@
     weather: q.get('weather') || 'live',   // live | city | off | clear | cloudy | overcast | fog | drizzle | rain | storm | snow | blizzard | windy
     date: q.get('date'),                   // YYYY-MM-DD, to preview seasons and holidays
     music: q.get('music'),                 // 1/on: play lo-fi radio (needs a click/keypress if autoplay is blocked); 0: never
+    nowplaying: q.get('nowplaying') || 'auto', // music widget: auto (on mouse move / new song), always, off
     units: q.get('units') || (/^en-US|^en-LR|^my/.test(navigator.language || '') ? 'f' : 'c'),
   };
 
@@ -637,7 +638,7 @@
   }
 
   // --- music: Pixelscapes FM -----------------------------------------------------------------
-  const musicState = { actx: null, engine: null, on: false, blocked: false, now: null, lastAmb: 0 };
+  const musicState = { actx: null, engine: null, on: false, blocked: false, now: null, queue: [], lastAmb: 0 };
   const musicPref = () => { if (cfg.music === '0') return false; if (cfg.music) return true; try { return localStorage.getItem('pixelscapes.music') === '1'; } catch (e) { return false; } };
   const musicMood = () => ({ night: P.dark, rain: weather.cur.rain, snow: weather.cur.snow, season: season ? season.name : null });
   function musicOn() {
@@ -648,7 +649,8 @@
       musicState.engine = new PS.Lofi(musicState.actx, {
         getMood: musicMood,
         volume: (() => { try { return +(localStorage.getItem('pixelscapes.volume') || 0.6); } catch (e) { return 0.6; } })(),
-        onTrack: (tr, at) => { musicState.now = { title: tr.title, at: performance.now() + (at - musicState.actx.currentTime) * 1000, bpm: tr.bpm }; },
+        // tracks are generated slightly ahead; queue them and switch the title when each one starts
+        onTrack: (tr, at) => { musicState.queue.push({ title: tr.title, at: performance.now() + (at - musicState.actx.currentTime) * 1000 }); },
       });
     }
     musicState.on = true;
@@ -667,25 +669,101 @@
     if (musicState.blocked && musicState.actx.state === 'running') musicState.blocked = false;
     if (performance.now() - musicState.lastAmb > 1000) { musicState.lastAmb = performance.now(); musicState.engine.setAmbience(musicMood()); }
   }
-  function drawMusic() {
-    if (!musicState.on) return;
-    if (musicState.blocked) {
-      const msg = 'CLICK OR PRESS M FOR MUSIC';
-      if (Math.floor(t * 1.2) % 2) return;
-      pS.text(msg, VW - PS.textWidth(msg) - 6, 16, 'rgba(255,255,255,0.7)');
-      return;
+  // Corner widget: [speaker] [equalizer] [song name] [skip]. Appears on mouse movement or when a
+  // new song starts, then fades away so the wallpaper stays clean.
+  const SPK_ON = ['..k....', '.kk..k.', 'kkk.k.k', 'kkk.k.k', 'kkk.k.k', '.kk..k.', '..k....'];
+  const SPK_OFF = ['..k....', '.kk....', 'kkk.k.k', 'kkk..k.', 'kkk.k.k', '.kk....', '..k....'];
+  const SKIP = ['k...k..k', 'kk..kk.k', 'kkk.kkkk', 'kk..kk.k', 'k...k..k'];
+  const mouse = { x: -1, y: -1, moved: -1e9, over: null };
+  const widget = { alpha: 0, rects: {}, volShown: -1e9, eq: [0, 0, 0, 0] };
+  function currentTitle() {
+    const q = musicState.queue, now = performance.now();
+    while (q.length && q[0].at <= now) { musicState.now = q.shift(); musicState.now.shown = now; }
+    return musicState.now;
+  }
+  function drawMusic(dt) {
+    if (cfg.nowplaying === 'off') return;
+    const now = performance.now();
+    const np = musicState.on ? currentTitle() : null;
+    const playing = musicState.on && !musicState.blocked;
+    const hover = !!mouse.over;
+    const wantVisible = cfg.nowplaying === 'always' || hover || now - mouse.moved < 3000 || now - widget.volShown < 2000 ||
+      (musicState.on && musicState.blocked) || (playing && np && now - np.shown < 8000);
+    widget.alpha += ((wantVisible ? 1 : 0) - widget.alpha) * Math.min(1, dt * (wantVisible ? 8 : 2.5));
+    if (widget.alpha < 0.02) { widget.rects = {}; return; }
+
+    let label;
+    if (musicState.on && musicState.blocked) label = 'CLICK TO PLAY';
+    else if (!musicState.on) label = 'PLAY LO-FI RADIO';
+    else label = np ? np.title : 'TUNING IN...';
+    const showVol = musicState.engine && now - widget.volShown < 2000;
+    const textW = showVol ? 23 : PS.textWidth(label);
+    const H = 11, pad = 3;
+    const W = pad + 7 + 3 + (playing ? 10 : 0) + textW + 5 + (playing ? 8 : 0) + pad;
+    const x0 = VW - W - 4, y0 = VH - H - 4;
+    ctx.globalAlpha = widget.alpha;
+    pS.rect(x0, y0, W, H, 'rgba(8,10,24,0.88)');
+    pS.rect(x0, y0, W, 1, 'rgba(255,255,255,0.14)'); pS.rect(x0, y0 + H - 1, W, 1, 'rgba(0,0,0,0.35)');
+    const hi = (name) => mouse.over === name;
+    let x = x0 + pad;
+    const iconCol = (name) => (hi(name) ? '#ffd57e' : '#e8e6f4');
+    pS.sprite(musicState.on && !musicState.blocked ? SPK_ON : SPK_OFF, x, y0 + 2, { k: iconCol('toggle') });
+    widget.rects.toggle = [x0, y0, (x + 7 + 3) - x0 + textW + (playing ? 10 : 0), H];
+    x += 7 + 3;
+    if (playing) {
+      const lv = musicState.engine.levels(4);
+      for (let i = 0; i < 4; i++) {
+        widget.eq[i] += (lv[i] - widget.eq[i]) * 0.5;
+        const h = 1 + Math.round(widget.eq[i] * 5);
+        pS.rect(x + i * 2, y0 + 8 - h, 1, h, i % 2 ? '#8fd0ff' : '#ffd57e');
+      }
+      x += 10;
     }
-    const np = musicState.now;
-    if (!np) return;
-    const age = (performance.now() - np.at) / 1000;
-    if (age < 0 || age > 9) return;
-    const a = Math.min(1, age, (9 - age) / 2);
-    const msg = `♪ PIXELSCAPES FM  ${np.title}`;
-    ctx.globalAlpha = a;
-    pS.text(msg, VW - PS.textWidth(msg) - 5, 17, 'rgba(0,0,0,0.5)');
-    pS.text(msg, VW - PS.textWidth(msg) - 6, 16, '#f4f0e6');
+    if (showVol) {
+      const v = Math.round(musicState.engine.volume * 10);
+      for (let i = 0; i < 10; i++) pS.rect(x + i * 2 + (i > 4 ? 1 : 0), y0 + 3, 1, 5, i < v ? '#ffd57e' : 'rgba(255,255,255,0.2)');
+    } else {
+      const blink = musicState.on && musicState.blocked && Math.floor(t * 1.5) % 2;
+      pS.text(label, x, y0 + 3, blink ? 'rgba(244,240,230,0.45)' : hi('toggle') ? '#ffffff' : '#f4f0e6');
+    }
+    x += textW + 5;
+    if (playing) {
+      pS.sprite(SKIP, x, y0 + 3, { k: iconCol('next') });
+      widget.rects.next = [x - 2, y0, 8 + 2 + pad, H];
+    } else delete widget.rects.next;
+    widget.rects.panel = [x0, y0, W, H];
     ctx.globalAlpha = 1;
   }
+  const inRect = (r) => r && mouse.x >= r[0] && mouse.x < r[0] + r[2] && mouse.y >= r[1] && mouse.y < r[1] + r[3];
+  function hitWidget() {
+    if (widget.alpha < 0.3) return null;
+    if (inRect(widget.rects.next)) return 'next';
+    if (inRect(widget.rects.toggle)) return 'toggle';
+    if (inRect(widget.rects.panel)) return 'panel';
+    return null;
+  }
+  function setMouse(e) {
+    const dpr = window.devicePixelRatio || 1;
+    mouse.x = (e.clientX * dpr) / s; mouse.y = (e.clientY * dpr) / s;
+    mouse.over = hitWidget();
+    canvas.style.cursor = mouse.over === 'toggle' || mouse.over === 'next' ? 'pointer' : '';
+  }
+  canvas.addEventListener('pointermove', (e) => { mouse.moved = performance.now(); setMouse(e); });
+  canvas.addEventListener('pointerleave', () => { mouse.over = null; mouse.x = mouse.y = -1; canvas.style.cursor = ''; });
+  canvas.addEventListener('pointerdown', (e) => {
+    mouse.moved = performance.now(); setMouse(e);
+    if (mouse.over === 'toggle') { if (musicState.on && !musicState.blocked) musicOff(); else musicOn(); }
+    else if (mouse.over === 'next' && musicState.on) musicState.engine.next();
+  });
+  canvas.addEventListener('wheel', (e) => {
+    setMouse(e);
+    if (!mouse.over || !musicState.engine) return;
+    e.preventDefault();
+    const v = Math.max(0, Math.min(1, musicState.engine.volume + (e.deltaY < 0 ? 0.05 : -0.05)));
+    musicState.engine.setVolume(v);
+    widget.volShown = performance.now();
+    try { localStorage.setItem('pixelscapes.volume', String(v)); } catch (err) { /* ignore */ }
+  }, { passive: false });
   const gesture = () => { if (musicState.on && musicState.blocked) musicOn(); };
   window.addEventListener('pointerdown', gesture);
   window.addEventListener('keydown', gesture, true);
@@ -823,7 +901,7 @@
     drawLabel();
     drawToast();
     musicTick();
-    drawMusic();
+    drawMusic(dt);
     drawDebug(fpsShown);
     mark(null);
   }
@@ -855,7 +933,7 @@
       const v = Math.max(0, Math.min(1, musicState.engine.volume + (k === '-' ? -0.1 : 0.1)));
       musicState.engine.setVolume(v);
       try { localStorage.setItem('pixelscapes.volume', String(v)); } catch (e) { /* ignore */ }
-      toast = { msg: `VOLUME ${Math.round(v * 10)}`, t: 1.5 };
+      widget.volShown = performance.now();
     } else if (k === 'w') {
       const names = ['live', 'clear', 'cloudy', 'overcast', 'fog', 'drizzle', 'rain', 'storm', 'snow', 'blizzard', 'windy'];
       wxCycle = (wxCycle + 1) % names.length;
@@ -865,7 +943,7 @@
     }
     if (k === '[' || k === ']') { const n = simNow(); toast = { msg: `${String(n.getHours()).padStart(2, '0')}:${String(n.getMinutes()).padStart(2, '0')}`, t: 1.5 }; }
   });
-  canvas.addEventListener('dblclick', () => spawn());
+  canvas.addEventListener('dblclick', () => { if (!mouse.over) spawn(); });
   window.addEventListener('resize', () => { layout(); });
 
   layout();
