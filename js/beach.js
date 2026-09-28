@@ -76,28 +76,28 @@
       const light = [Math.max(0.16, P.amb[0] + P.sun[0] * 0.55), Math.max(0.16, P.amb[1] + P.sun[1] * 0.55), Math.max(0.22, P.amb[2] + P.sun[2] * 0.55)];
       const lit = (h, k) => css(mul(hex(h), scale(light, k || 1)));
       const sil = css(mix(hex('#06060e'), hex('#1c1a2a'), P.day));
-      const walkTop = VH - (this.o.mosaic ? 5 : 4);
-      const sandTop = walkTop - 8;
+      const walkTop = VH - (this.o.mosaic ? 7 : 5);
+      const sandTop = walkTop - 12;
       const busy = P.day > 0.45 && S.weather.rain < 0.2;
 
       // --- surf: foam lines rolling in, washing up the sand ---
       const foam = mix([236, 242, 250], P.hor, 0.25 + 0.35 * night);
       for (let k = 0; k < 3; k++) {
         const ph = ((t / 5.5 + k / 3) % 1);
-        const y = sandTop - 12 + ph * 12;
-        const a = Math.sin(ph * Math.PI) * (0.55 - 0.2 * night);
+        const y = sandTop - 14 + ph * 14;
+        const a = Math.sin(ph * Math.PI) * (0.8 - 0.3 * night);
         p.ctx.fillStyle = PS.cssA(foam, a);
         for (let x = Math.floor(x0); x < x1; x += 3) {
           const n = PS.hash(Math.floor(x / 3), k * 97 + Math.floor(t / 5.5 + k / 3));
           if (n < 0.25) continue;
-          p.rect(x, Math.round(y + (n - 0.5) * 1.5), 2 + (n > 0.8 ? 1 : 0), 1);
+          p.rect(x, Math.round(y + (n - 0.5) * 1.5), 3 + (n > 0.7 ? 2 : 0), 1);
         }
       }
       // --- sand ---
       const sand = lit('#e6cf9c'), sandDark = lit('#cfb27a'), wetSand = lit('#b89c6a');
       p.rect(x0, sandTop, x1 - x0, walkTop - sandTop, sand);
       const wash = (Math.sin((t / 5.5) * Math.PI * 2) + 1) / 2;
-      p.rect(x0, sandTop, x1 - x0, 1 + Math.round(wash * 1.5), wetSand);
+      p.rect(x0, sandTop, x1 - x0, 1 + Math.round(wash * 2.5), wetSand);
       p.ctx.fillStyle = sandDark;
       for (let x = Math.floor(x0 / 4) * 4; x < x1; x += 4) if (PS.hash(x, 5) < 0.5) p.rect(x + (PS.hash(x, 9) * 3 | 0), sandTop + 3 + (PS.hash(x, 7) * 4 | 0), 1, 1);
       // --- beachfront walk ---
@@ -107,9 +107,8 @@
         p.rect(x0, walkTop, x1 - x0, VH - walkTop, w1);
         p.ctx.fillStyle = w2;
         for (let x = Math.floor(x0); x < x1; x++) {
-          const y = Math.round(Math.sin(x * 0.45) * 1.4);
-          p.rect(x, walkTop + 2 + y, 1, 1);
-          p.rect(x, walkTop + 1 + y, 1, 1);
+          const y = Math.round(Math.sin(x * 0.32) * 2);
+          p.rect(x, walkTop + 2 + y, 1, 2);
         }
       } else {
         p.rect(x0, walkTop, x1 - x0, VH - walkTop, lit('#b8b0a4'));
