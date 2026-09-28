@@ -705,6 +705,8 @@
   const SPK_ON = ['..k....', '.kk..k.', 'kkk.k.k', 'kkk.k.k', 'kkk.k.k', '.kk..k.', '..k....'];
   const SPK_OFF = ['..k....', '.kk....', 'kkk.k.k', 'kkk..k.', 'kkk.k.k', '.kk....', '..k....'];
   const SKIP = ['k...k..k', 'kk..kk.k', 'kkk.kkkk', 'kk..kk.k', 'k...k..k'];
+  const ARROW_L = ['..k', '.kk', 'kkk', '.kk', '..k'];
+  const ARROW_R = ['k..', 'kk.', 'kkk', 'kk.', 'k..'];
   const mouse = { x: -1, y: -1, moved: -1e9, over: null };
   const widget = { alpha: 0, rects: {}, volShown: -1e9, eq: [0, 0, 0, 0] };
   function currentTitle() {
@@ -763,6 +765,21 @@
       widget.rects.next = [x - 2, y0, 8 + 2 + pad, H];
     } else delete widget.rects.next;
     widget.rects.panel = [x0, y0, W, H];
+
+    // City picker, stacked above the player: ◀ CITY NAME ▶
+    if (PS.cityList.length > 1) {
+      const name = city.name.toUpperCase();
+      const cw = 3 + 3 + 4 + PS.textWidth(name) + 4 + 3 + 3;
+      const cx0 = VW - cw - 4, cy0 = y0 - H - 2;
+      pS.rect(cx0, cy0, cw, H, 'rgba(8,10,24,0.88)');
+      pS.rect(cx0, cy0, cw, 1, 'rgba(255,255,255,0.14)'); pS.rect(cx0, cy0 + H - 1, cw, 1, 'rgba(0,0,0,0.35)');
+      pS.sprite(ARROW_L, cx0 + 3, cy0 + 3, { k: hi('cityPrev') ? '#ffd57e' : '#e8e6f4' });
+      pS.text(name, cx0 + 3 + 3 + 4, cy0 + 3, hi('cityName') ? '#ffffff' : '#f4f0e6');
+      pS.sprite(ARROW_R, cx0 + cw - 3 - 3, cy0 + 3, { k: hi('cityNext') ? '#ffd57e' : '#e8e6f4' });
+      widget.rects.cityPrev = [cx0, cy0, 9, H];
+      widget.rects.cityNext = [cx0 + cw - 9, cy0, 9, H];
+      widget.rects.cityName = [cx0 + 9, cy0, cw - 18, H];
+    }
     ctx.globalAlpha = 1;
   }
   const inRect = (r) => r && mouse.x >= r[0] && mouse.x < r[0] + r[2] && mouse.y >= r[1] && mouse.y < r[1] + r[3];
@@ -771,19 +788,24 @@
     if (inRect(widget.rects.next)) return 'next';
     if (inRect(widget.rects.toggle)) return 'toggle';
     if (inRect(widget.rects.panel)) return 'panel';
+    if (inRect(widget.rects.cityPrev)) return 'cityPrev';
+    if (inRect(widget.rects.cityNext)) return 'cityNext';
+    if (inRect(widget.rects.cityName)) return 'cityName';
     return null;
   }
   function setMouse(e) {
     const dpr = window.devicePixelRatio || 1;
     mouse.x = (e.clientX * dpr) / s; mouse.y = (e.clientY * dpr) / s;
     mouse.over = hitWidget();
-    canvas.style.cursor = mouse.over === 'toggle' || mouse.over === 'next' ? 'pointer' : '';
+    canvas.style.cursor = mouse.over && mouse.over !== 'panel' ? 'pointer' : '';
   }
   canvas.addEventListener('pointermove', (e) => { mouse.moved = performance.now(); setMouse(e); });
   canvas.addEventListener('pointerleave', () => { mouse.over = null; mouse.x = mouse.y = -1; canvas.style.cursor = ''; });
   canvas.addEventListener('pointerdown', (e) => {
     mouse.moved = performance.now(); setMouse(e);
     if (mouse.over === 'toggle') { if (musicState.on && !musicState.blocked) musicOff(); else musicOn(); }
+    else if (mouse.over === 'cityPrev') switchCity(-1);
+    else if (mouse.over === 'cityNext' || mouse.over === 'cityName') switchCity(1);
     else if (mouse.over === 'next' && musicState.on) musicState.engine.next();
   });
   canvas.addEventListener('wheel', (e) => {

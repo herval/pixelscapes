@@ -8,7 +8,7 @@ A living pixel-art city skyline that slowly pans, follows the real time of day w
 
 ## Cities
 
-Press `C` to switch city (`Shift+C` goes back). Your choice is remembered. You can also pick one with `?city=nyc|rio|berlin|sf|jampa`, or use `?city=rotate` for a different city every day.
+Move the mouse and click the arrows on the city picker in the bottom-right corner, or press `C` to switch city (`Shift+C` goes back). Your choice is remembered. You can also pick one with `?city=nyc|rio|berlin|sf|jampa`, or use `?city=rotate` for a different city every day.
 
 - **New York** (`nyc`): Empire State (with nightly crown colors), Chrysler, One WTC, Woolworth, Citigroup, 432 Park, Steinway, Central Park Tower, Hudson Yards, the Brooklyn Bridge and the Statue of Liberty, plus hundreds of generated buildings with water towers.
 - **Rio de Janeiro** (`rio`): Sugarloaf with its cable car, Christ the Redeemer on Corcovado (pink in October, blue in November), favelas twinkling on the hills, and a Copacabana beach with the wave mosaic.
