@@ -28,7 +28,7 @@ Everything is procedural (no image assets), so it's one static folder you can op
 
 ## Weather
 
-Live weather for your location comes from [Open-Meteo](https://open-meteo.com), which is free and needs no API key. It refreshes every 15 minutes and is cached, and changes blend in smoothly over a couple of minutes.
+Each city shows its own real, current weather from [Open-Meteo](https://open-meteo.com), which is free and needs no API key: Rio shows Rio's sky, Berlin shows Berlin's. It refreshes every 15 minutes and is cached, and changes blend in smoothly over a couple of minutes.
 
 - **Clouds:** cloud cover drives how many clouds there are and greys the sky. Heavy overcast hides the sun, moon and stars.
 - **Rain and storms:** drizzle, rain and showers, with splashes on the water. Thunderstorms add lightning. People on the promenade open umbrellas, and outdoor rooftop events wait out the rain.
@@ -37,7 +37,7 @@ Live weather for your location comes from [Open-Meteo](https://open-meteo.com), 
 - **Wind:** wind pushes the clouds, rain, snow, steam and flags.
 - **Caption:** the start-up caption shows the temperature and conditions.
 
-Use `?weather=city` for the depicted city's real weather instead of yours. You can also force conditions with `?weather=clear|cloudy|overcast|fog|drizzle|rain|storm|snow|blizzard|windy`, or turn weather off with `?weather=off`. Press `W` to cycle through them.
+Use `?weather=here` to show the weather where you are instead (from browser geolocation, or guessed from your time zone). You can also force conditions with `?weather=clear|cloudy|overcast|fog|drizzle|rain|storm|snow|blizzard|windy`, or turn weather off with `?weather=off`. Press `W` to cycle through them.
 
 If the weather can't be fetched (offline), the sky falls back to a random daily cloud cover with the occasional passing shower.
 
@@ -100,7 +100,7 @@ Keyboard: `M` turns music on or off (it's remembered), `T` skips to the next tra
 | `label` | `1` | `label=0` hides the city/time caption shown at start |
 | `cam` | random | starting pan position |
 | `event` | | spawn specific events at start, e.g. `event=ufo,kong` |
-| `weather` | `live` | `live`, `city`, `off`, or a preset (`clear`, `cloudy`, `overcast`, `fog`, `drizzle`, `rain`, `storm`, `snow`, `blizzard`, `windy`) |
+| `weather` | `city` | `city` (the city's own weather), `here` (yours), `off`, or a preset (`clear`, `cloudy`, `overcast`, `fog`, `drizzle`, `rain`, `storm`, `snow`, `blizzard`, `windy`) |
 | `date` | today | preview a date (seasons, holidays), e.g. `date=2026-10-31` |
 | `units` | auto | `c` or `f` for the caption temperature |
 | `music` | remembered | `1` to play the lo-fi radio, `0` to disable it |

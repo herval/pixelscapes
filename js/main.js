@@ -22,7 +22,7 @@
     lon: q.has('lon') ? num('lon', -74) : null,
     event: q.get('event'),
     cam: q.has('cam') ? num('cam', 0) : null,
-    weather: q.get('weather') || 'live',   // live | city | off | clear | cloudy | overcast | fog | drizzle | rain | storm | snow | blizzard | windy
+    weather: q.get('weather') || 'city',   // city (the depicted city's real weather) | here (your location) | off | clear | cloudy | overcast | fog | drizzle | rain | storm | snow | blizzard | windy
     date: q.get('date'),                   // YYYY-MM-DD, to preview seasons and holidays
     music: q.get('music'),                 // 1/on: play lo-fi radio (needs a click/keypress if autoplay is blocked); 0: never
     nowplaying: q.get('nowplaying') || 'auto', // music widget: auto (on mouse move / new song), always, off
@@ -109,9 +109,11 @@
   let toast = null;
   let lastRain = -1e9;
   let season = null, builtCover = -1, cloudOff = 0, lastSig = '';
-  const weather = new PS.Weather({ preset: ['live', 'city', 'off'].includes(cfg.weather) ? null : cfg.weather, off: cfg.weather === 'off' });
+  if (cfg.weather === 'live') cfg.weather = 'here'; // old name
+  const weather = new PS.Weather({ preset: ['here', 'city', 'off'].includes(cfg.weather) ? null : cfg.weather, off: cfg.weather === 'off' });
   function refreshWeather() {
-    const at = cfg.weather === 'city' ? { lat: city.lat, lon: city.lon } : loc;
+    // Default: the weather of the city on screen (so "RIO 25C CLEAR" really is Rio). ?weather=here uses yours.
+    const at = cfg.weather === 'here' ? loc : { lat: city.lat, lon: city.lon };
     if (at) weather.refresh(at.lat, at.lon).then(() => { dirty = true; });
   }
   setInterval(refreshWeather, 15 * 60e3);
@@ -996,10 +998,10 @@
       try { localStorage.setItem('pixelscapes.volume', String(v)); } catch (e) { /* ignore */ }
       widget.volShown = performance.now();
     } else if (k === 'w') {
-      const names = ['live', 'clear', 'cloudy', 'overcast', 'fog', 'drizzle', 'rain', 'storm', 'snow', 'blizzard', 'windy'];
+      const names = ['city', 'clear', 'cloudy', 'overcast', 'fog', 'drizzle', 'rain', 'storm', 'snow', 'blizzard', 'windy'];
       wxCycle = (wxCycle + 1) % names.length;
       weather.setPreset(names[wxCycle]);
-      if (names[wxCycle] === 'live') refreshWeather();
+      if (names[wxCycle] === 'city') refreshWeather();
       toast = { msg: 'WEATHER: ' + names[wxCycle].toUpperCase(), t: 2 };
     }
     if (k === '[' || k === ']') { const n = simNow(); toast = { msg: `${String(n.getHours()).padStart(2, '0')}:${String(n.getMinutes()).padStart(2, '0')}`, t: 1.5 }; }

@@ -96,17 +96,24 @@
   PS.guessLocation = function () {
     const y = new Date().getFullYear();
     const std = Math.max(new Date(y, 0, 1).getTimezoneOffset(), new Date(y, 6, 1).getTimezoneOffset());
-    const lon = -std / 4;
+    const lonFromOffset = -std / 4;
     let tz = '';
     try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { /* ignore */ }
+    // [zone prefix, lat, lon]: named zones pin both coordinates (the zone's reference city);
+    // continent fallbacks only give a latitude, longitude then comes from the UTC offset.
     const table = [
-      ['America/Sao_Paulo', -23.5], ['America/Fortaleza', -3.7], ['America/Recife', -8], ['America/Bahia', -13], ['America/Belem', -1.4], ['America/Manaus', -3.1], ['America/Argentina', -34.6], ['America/Santiago', -33.4], ['America/Lima', -12], ['America/Bogota', 4.7],
-      ['America/Mexico', 19.4], ['America/Los_Angeles', 34], ['America/Vancouver', 49], ['America/Chicago', 41.8], ['America/Denver', 39.7],
-      ['America/New_York', 40.7], ['America/Toronto', 43.7], ['America/', 38], ['Europe/', 48.5], ['Asia/Tokyo', 35.7], ['Asia/Shanghai', 31],
-      ['Asia/Kolkata', 22], ['Asia/Singapore', 1.3], ['Asia/Dubai', 25], ['Asia/', 30], ['Australia/', -33.8], ['Pacific/Auckland', -36.8], ['Africa/', 5],
+      ['America/Sao_Paulo', -23.55, -46.63], ['America/Fortaleza', -3.73, -38.52], ['America/Recife', -8.05, -34.9], ['America/Bahia', -12.97, -38.5],
+      ['America/Belem', -1.46, -48.5], ['America/Manaus', -3.12, -60.02], ['America/Maceio', -9.67, -35.74], ['America/Araguaina', -7.19, -48.2],
+      ['America/Argentina', -34.6, -58.38], ['America/Santiago', -33.45, -70.67], ['America/Lima', -12.05, -77.04], ['America/Bogota', 4.71, -74.07],
+      ['America/Mexico_City', 19.43, -99.13], ['America/Los_Angeles', 34.05, -118.24], ['America/Vancouver', 49.28, -123.12], ['America/Chicago', 41.88, -87.63],
+      ['America/Denver', 39.74, -104.99], ['America/New_York', 40.71, -74.01], ['America/Toronto', 43.65, -79.38],
+      ['Europe/London', 51.51, -0.13], ['Europe/Berlin', 52.52, 13.4], ['Europe/Paris', 48.86, 2.35], ['Europe/Madrid', 40.42, -3.7], ['Europe/Lisbon', 38.72, -9.14],
+      ['Europe/Rome', 41.9, 12.5], ['Europe/Amsterdam', 52.37, 4.9], ['Asia/Tokyo', 35.68, 139.69], ['Asia/Shanghai', 31.23, 121.47], ['Asia/Kolkata', 22.57, 88.36],
+      ['Asia/Singapore', 1.35, 103.82], ['Asia/Dubai', 25.2, 55.27], ['Australia/Sydney', -33.87, 151.21], ['Pacific/Auckland', -36.85, 174.76],
+      ['America/', 38], ['Europe/', 48.5], ['Asia/', 30], ['Australia/', -33.8], ['Africa/', 5],
     ];
-    let lat = 40;
-    for (const [k, v] of table) if (tz.startsWith(k)) { lat = v; break; }
+    let lat = 40, lon = lonFromOffset;
+    for (const [k, la, lo] of table) if (tz.startsWith(k)) { lat = la; if (lo != null) lon = lo; break; }
     return { lat, lon, guessed: true };
   };
 })();

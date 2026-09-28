@@ -63,7 +63,7 @@
 
     // Switch to a preset (transitions smoothly) or back to live data.
     setPreset(name) {
-      if (name === 'live') { this.source = 'none'; this.live = false; return; }
+      if (name === 'live' || name === 'city' || name === 'here') { this.source = 'none'; this.live = false; return; }
       this.target = Object.assign({}, CLEAR, PRESETS[name], { desc: DESC[name] });
       this.source = 'preset'; this.live = true;
     }
