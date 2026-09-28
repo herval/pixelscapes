@@ -744,8 +744,10 @@
   }
 
   function kong(S) {
-    const esb = S.lm.esb;
-    if (!esb) return null;
+    // Climbs whatever landmark the city nominates as its perch (Empire State, TV Tower...).
+    const perch = S.lm.perch;
+    if (!perch) return null;
+    const esb = { x: perch.x, mastTop: perch.top };
     const X = S.mx(esb.x) - S.om;
     if (X < 30 || X > S.VW - 10) return null;
     const ev = { z: 'main', space: 'main', t: 0 };
@@ -1202,6 +1204,9 @@
 
   const night = (S) => S.P.dark > 0.55;
   const day = (S) => S.P.day > 0.5;
+  // Toolkit for city-specific events (see js/cities/*.js).
+  PS.EV = { PERSON, CAT, BIRD, NOTE, HEART, scaled, rooftop, scrolledAway, actor, boat, waterY, fireworks, R };
+
   PS.EVENTS = [
     { id: 'dancer', w: 6, make: (S) => actor(S, 'dancer') },
     { id: 'yoga', w: 4, ok: (S) => !night(S) || S.hour < 22, make: (S) => actor(S, 'yoga') },

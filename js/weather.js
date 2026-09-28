@@ -119,7 +119,7 @@
 
     // Grey the sky, hide the sun, dim the light according to cloud and precipitation.
     applyToPalette(P) {
-      const c = this.cur;
+      const c = Object.assign({}, this.cur, { fog: Math.max(this.cur.fog, this.extraFog || 0) });
       const oc = clamp((c.cloud - 0.35) / 0.6, 0, 1);
       const dim = Math.max(oc * 0.85, c.rain * 0.95, c.snow * 0.85, c.fog * 0.95);
       const grey = (col, k) => { const l = col[0] * 0.3 + col[1] * 0.55 + col[2] * 0.15; return PS.scale([l * 0.96, l, l * 1.07], k); };
@@ -148,7 +148,8 @@
     }
 
     drawFog(p, S) {
-      const c = this.cur, g = p.ctx, VW = S.VW, VH = S.VH;
+      const c = Object.assign({}, this.cur, { fog: Math.max(this.cur.fog, this.extraFog || 0) });
+      const g = p.ctx, VW = S.VW, VH = S.VH;
       // fog: a veil hugging the water and streets, plus drifting wisps
       if (c.fog > 0.02) {
         const fogCol = mix(S.P.hor, [200, 204, 214], 0.5 * S.P.day);

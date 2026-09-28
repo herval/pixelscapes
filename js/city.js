@@ -11,6 +11,8 @@
     glass: '#6f9cc4', glass2: '#4d6d90', glassG: '#6aa6a4', glassD: '#39465c', terra: '#c98b6b', wood: '#80573a',
     copper: '#62a88f', gold: '#e7b54c', dark: '#3a3844', asphalt: '#3c3a44', grass: '#4f7a45', tree: '#3f6e3c', tree2: '#4f8a44', tree3: '#2f6434',
     red: '#b8433a', roof: '#6a6470', black: '#23222b',
+    sand: '#e6cf9c', sand2: '#d4b77e', rock: '#7a7068', orange: '#d0452e', yellow: '#f2c230', mint: '#8fd4c0',
+    pastelY: '#f2d27a', pastelB: '#9cc8e0', pastelP: '#e8a0b8', pastelG: '#a8d8a0', pastelO: '#f0b080', pastelL: '#c0a8e0',
   };
   const MATS = {};
   for (const k in PS.MATS) MATS[k] = hex(PS.MATS[k]);

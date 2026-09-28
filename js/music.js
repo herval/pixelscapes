@@ -65,7 +65,7 @@
 
   function makeRng(seed) { return PS.rng ? PS.rng(seed) : Math.random; }
 
-  function generateTrack(seed, mood) {
+  function generateTrack(seed, mood, words) {
     const r = makeRng(seed);
     const pick = (a) => a[Math.floor(r() * a.length)];
     const night = mood.night || 0, rain = mood.rain || 0, snow = mood.snow || 0;
@@ -121,7 +121,7 @@
       motif, variant, leadInst, sections,
       bars: sections.reduce((a, s) => a + s.bars, 0),
       bright: 4200 + (1 - night) * 3600 - rain * 1200,
-      title: `${pick(WORDS_A)} ${pick(WORDS_B)}`,
+      title: `${pick((words && words[0]) || WORDS_A)} ${pick((words && words[1]) || WORDS_B)}`,
       strum: 0.012 + r() * 0.02,
       wobble: 4 + r() * 8,
     };
@@ -385,7 +385,7 @@
 
     newTrack() {
       const mood = this.getMood();
-      this.track = generateTrack(this.seed++, mood);
+      this.track = generateTrack(this.seed++, mood, this.opts.words);
       this.step = 0;
       this.wowAmt.gain.setTargetAtTime(this.track.wobble, this.nextTime, 1);
       const t = this.nextTime;

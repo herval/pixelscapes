@@ -7,145 +7,9 @@
 
   const WM = 2400;
 
-  function gauss(x, c, sigma, W) {
-    let d = Math.abs(x - c); d = Math.min(d, W - d);
-    return Math.exp(-(d * d) / (2 * sigma * sigma));
-  }
-
-  // ---------------------------------------------------------------------------------------------
-  // Generic buildings
-
-  function generic(B, x, w, h, row) {
-    const r = B.rng;
-    const tall = h > 58;
-    let mat, glass = false, win;
-    if (tall && r() < 0.5) {
-      mat = r.pick(['glass', 'glass2', 'glassG', 'glassD', 'glass']); glass = true;
-      win = { office: true, py: r.pick([2, 2, 3]), wh: 1, mx: 1, my: 2 };
-    } else {
-      mat = row === 'front'
-        ? r.pick(['brick', 'brick2', 'brick3', 'brown', 'lime', 'cream', 'brick', 'conc'])
-        : r.pick(['lime', 'cream', 'conc', 'conc2', 'brick', 'brick2', 'stone', 'white', 'lime']);
-      win = r.pick([
-        { ww: 1, wh: 1, px: 2, py: 2 }, { ww: 1, wh: 2, px: 2, py: 3 }, { ww: 2, wh: 1, px: 3, py: 2 },
-        { ww: 1, wh: 1, px: 2, py: 3 }, { ww: 2, wh: 2, px: 3, py: 3 },
-      ]);
-      if (w < 7) win = { ww: 1, wh: 1, px: 2, py: 2, mx: 1 };
-    }
-    const opts = { glass, win, mullions: glass && r() < 0.5 ? r.pick([2, 3]) : 0, bands: !glass && r() < 0.25 ? r.pick([6, 8, 10]) : 0 };
-
-    // Setbacks
-    const blocks = [];
-    if (h > 44 && r() < 0.45) {
-      const n = r.int(1, 3);
-      let bx = x, bw = w, bottom = 0, remaining = h;
-      for (let i = 0; i <= n; i++) {
-        const bh = i === n ? remaining : Math.max(6, Math.floor(remaining * r.range(0.45, 0.7)));
-        blocks.push({ x: bx, w: bw, top: bottom - bh, h: bh });
-        bottom -= bh; remaining -= bh;
-        const inset = r.int(1, Math.max(1, Math.floor(bw / 6)));
-        if (bw - inset * 2 < 5) break;
-        bx += inset; bw -= inset * 2;
-        if (remaining <= 0) break;
-      }
-    } else blocks.push({ x, w, top: -h, h });
-
-    for (const b of blocks) B.box(b.x, b.top, b.w, b.h, mat, opts);
-    const top = blocks[blocks.length - 1];
-    let free = { x: top.x + 1, w: top.w - 2 };
-
-    // Fire escapes zig-zagging down brick walk-ups
-    const brickish = mat.startsWith('brick') || mat === 'brown';
-    if (row === 'front' && brickish && w >= 9 && h >= 16 && r() < 0.6) {
-      const fx = x + 2 + r.int(0, Math.max(0, w - 12));
-      const py = win.py || 2;
-      let flip = false;
-      for (let y = -h + 4; y < -6; y += (py + 1) * 2) {
-        B.f(fx, y + 1, 4, 1, 'black', 'flat', { a: 0.5 });
-        B.line(flip ? fx + 3 : fx, y + 2, flip ? fx : fx + 3, Math.min(-6, y + (py + 1) * 2), 'black', 'flat', { a: 0.28 });
-        flip = !flip;
-      }
-    }
-    // Neon signs at street level (animated at night)
-    if (row === 'front' && w >= 6 && r() < 0.35) {
-      const sw = r.int(2, Math.min(5, w - 3)), sh = r.int(1, 2);
-      B.signs.push({ x: x + 1 + r.int(0, w - sw - 2), y: -r.int(4, 8), w: sw, h: sh, c: r.pick(['#ff3a7a', '#3af0ff', '#ff5a3a', '#b25aff', '#5aff8a', '#ffd23a']), flick: r() < 0.3 });
-    }
-
-    // Street-level shop glow on low buildings
-    if (row === 'front' && r() < 0.6) B.emit(x + 1, -2, Math.max(1, w - 3), 1, mat, r.pick(['#ffcf80', '#ffe2a8', '#ff9f6b', '#a8e0ff']), 'dark');
-
-    // Roof features
-    const roll = r();
-    if (!glass && top.w >= 7 && h < 95 && roll < (row === 'front' ? 0.55 : 0.4)) {
-      const left = r() < 0.5;
-      const cx = left ? top.x + 3 : top.x + top.w - 4;
-      const wt = B.waterTower(cx, top.top);
-      free = left ? { x: wt.x + wt.w + 1, w: top.x + top.w - (wt.x + wt.w + 1) - 1 } : { x: top.x + 1, w: wt.x - top.x - 2 };
-    } else if (tall && roll < 0.62) {
-      const cx = top.x + (top.w >> 1);
-      if (r() < 0.5) {
-        // pointed crown
-        let cw = top.w - 2, cy = top.top;
-        const cm = r.pick([mat, 'steel', 'copper', 'gold']);
-        while (cw > 1) { cy -= 1; B.f(cx - (cw >> 1), cy, cw, 1, cm, 'front'); B.f(cx - (cw >> 1), cy, 1, 1, cm, 'rim'); cw -= 2; }
-        B.f(cx, cy - r.int(3, 8), 1, r.int(3, 8), 'steel', 'flat');
-        free = null;
-      } else {
-        B.antenna(cx, top.top, r.int(6, 16));
-        free = { x: top.x + 1, w: cx - top.x - 3 };
-      }
-    } else if (roll < 0.8 && top.w >= 6) {
-      const bw = r.int(2, Math.min(5, top.w - 3)), bh = r.int(1, 3);
-      const bx = top.x + r.int(1, top.w - bw - 1);
-      B.box(bx, top.top - bh, bw, bh, 'roof', { side: 1 });
-      free = bx - top.x > top.x + top.w - bx - bw ? { x: top.x + 1, w: bx - top.x - 2 } : { x: bx + bw + 1, w: top.x + top.w - bx - bw - 2 };
-    }
-    // Small rooftop life: steam vents, flags, gardens, AC units
-    if (free && free.w >= 4) {
-      const extra = r();
-      if (extra < 0.18) {
-        const vx = free.x + free.w - 2;
-        B.f(vx, top.top - 2, 1, 2, 'dark', 'flat');
-        B.vents.push({ x: vx, y: top.top - 3, ph: r() * 10 });
-        free = { x: free.x, w: free.w - 3 };
-      } else if (extra < 0.28 && h > 30) {
-        const fx = free.x + free.w - 1;
-        B.f(fx, top.top - 7, 1, 7, 'steel', 'flat');
-        B.flags.push({ x: fx + 1, y: top.top - 7, kind: r.pick(['us', 'us', 'ny', 'pride', 'red']), ph: r() * 10 });
-        free = { x: free.x, w: free.w - 2 };
-      } else if (extra < 0.38 && row === 'front') {
-        for (let i = 0; i < Math.min(free.w, 6); i += 2) { B.f(free.x + i, top.top - 1, 2, 1, r.pick(['tree', 'tree2', 'tree3']), 'front'); if (r() < 0.5) B.f(free.x + i, top.top - 2, 1, 1, 'grass', 'rim'); }
-      } else if (extra < 0.55) {
-        B.box(free.x + free.w - 3, top.top - 2, 3, 2, 'conc2', { side: 1, noEdge: true });
-        free = { x: free.x, w: free.w - 4 };
-      }
-    }
-    if (tall && r() < 0.3) {
-      const gc = r.pick(['#ffffff', '#ffd27a', '#8fd0ff', '#ff8fb8', '#b5ff9a']);
-      B.emit(top.x, top.top, top.w, 1, mat, gc, 'rim');
-    }
-    if (row === 'front') B.lightStrings.push({ x: top.x, w: top.w, y: top.top - 1, ph: r() * 10 });
-    if (free && free.w >= 5) B.roofs.push({ x: free.x, w: free.w, y: top.top, row, ri: B.rects.length });
-    return { x, w, h };
-  }
-
-  // Simple silhouettes for the distant layers.
-  function distant(B, x, w, h, far) {
-    const r = B.rng;
-    const mat = r.pick(far ? ['conc2', 'stone', 'lime', 'glass2'] : ['lime', 'conc', 'conc2', 'brick', 'glass', 'glass2', 'stone', 'cream']);
-    const isGlass = mat.startsWith('glass');
-    const win = far ? { ww: 1, wh: 1, px: 2, py: 3, my: 2 } : isGlass ? { office: true, py: 2, mx: 1 } : { ww: 1, wh: 1, px: 2, py: 2 };
-    let top = -h, bx = x, bw = w;
-    if (!far && h > 40 && r() < 0.35) {
-      const h1 = Math.floor(h * 0.65);
-      B.box(x, -h1, w, h1, mat, { glass: isGlass, win, side: w > 8 ? 1 : 0 });
-      bx = x + 2; bw = w - 4; top = -h;
-      B.box(bx, top, bw, h - h1, mat, { glass: isGlass, win, side: 1 });
-    } else B.box(x, top, w, h, mat, { glass: isGlass, win, side: far ? 0 : w > 8 ? 1 : 0 });
-    if (h > (far ? 32 : 50) && r() < 0.35) B.antenna(bx + (bw >> 1), top, r.int(4, 10));
-    else if (!far && r() < 0.2 && bw > 5) B.waterTower(bx + 3, top);
-  }
+  const gauss = PS.kit.gauss;
+  const generic = (B, x, w, h, row) => PS.kit.generic(B, x, w, h, row);
+  const distant = (B, x, w, h, far) => PS.kit.distant(B, x, w, h, far);
 
   // ---------------------------------------------------------------------------------------------
   // Landmarks
@@ -407,7 +271,7 @@
 
   // ---------------------------------------------------------------------------------------------
 
-  PS.cities.nyc = function (seed) {
+  PS.registerCity('nyc', 'New York', function (seed) {
     const layers = [];
     const dayIdx = Math.floor(Date.now() / 864e5);
 
@@ -499,22 +363,27 @@
     lm.liberty = statueOfLiberty(B, 190);
 
     // Roofs whose background is sky (nothing taller right behind them) are preferred for actors.
-    const inBridge = (x) => x > bridge[0] - 4 && x < bridge[1] + 4;
-    B.roofs = B.roofs.filter((rf) => !inBridge(rf.x) && !inBridge(rf.x + rf.w));
-    for (const rf of B.roofs) {
-      const over = (q) => q.x < rf.x + rf.w + 1 && q.x + q.w > rf.x - 1;
-      rf.sky = !B.rects.some((q) => over(q) && q.y < rf.y - 3);
-      rf.occluded = B.rects.slice(rf.ri).some((q) => over(q) && q.y < rf.y + 1);
-    }
-    B.roofs = B.roofs.filter((rf) => !rf.occluded);
+    PS.kit.finalizeRoofs(B, [bridge]);
 
     layers.push({ name: 'main', par: 1, W: WM, haze: 0, B, groundGlow: 34, fogK: 0.12 });
 
+    lm.perch = { x: lm.esb.x, top: lm.esb.mastTop }; // where the giant ape climbs
     return {
+      key: 'nyc',
       name: 'New York',
       lat: 40.71, lon: -74.01,
       layers,
       landmarks: lm,
+      holidays: ['xmas', 'halloween', 'july4', 'nye', 'valentine', 'stpatrick', 'thanksgiving', 'pride'],
+      foreground: { kind: 'promenade' },
+      flags: 'us',
+      // Landmark floodlights: the Empire State's crown follows holidays, otherwise a daily scheme.
+      glow(season) {
+        const c = season && season.esb ? season.esb.map(hex) : lm.esb.scheme;
+        PS.GLOWS.esb0 = c[0]; PS.GLOWS.esb1 = c[1]; PS.GLOWS.esb2 = c[2];
+      },
+      musicWords: [['rainy', 'late', 'blue', 'neon', 'quiet', 'sleepy', 'golden', 'foggy', 'midnight', 'rooftop', 'slow', 'hazy', 'warm', 'lonely', 'soft', 'last', 'sunday', 'cold'],
+        ['bodega', 'ferry', 'fire escape', 'steam vents', 'pigeons', 'subway', 'puddles', 'stoop', 'window', 'bridge', 'taxi', 'radiator', 'laundromat', 'coffee', 'skyline', 'streetlights', 'harbor', 'elevator']],
       lanes: [
         { y: 2, x0: 0, x1: WM, dir: 1 },
         { y: 3, x0: 0, x1: WM, dir: -1 },
@@ -523,5 +392,5 @@
       harbor,
       messages: ["I ♥ NY", 'BAGELS 4 LIFE', 'PIZZA RAT FOR MAYOR', "EAT AT JOE'S", 'FUGGEDABOUTIT', 'HONK IF U R LOST', 'NO PARKING ANYTIME', 'THE CITY NEVER SLEEPS', 'HELLO FROM ABOVE', 'SUBWAY DELAYED'],
     };
-  };
+  });
 })();

@@ -8,7 +8,7 @@
   const q = new URLSearchParams(location.search);
   const num = (k, d) => (q.has(k) && !isNaN(parseFloat(q.get(k))) ? parseFloat(q.get(k)) : d);
   const cfg = {
-    city: q.get('city') || 'nyc',
+    city: q.get('city'),               // nyc | rio | berlin | sf | jampa | rotate (daily); default: last chosen, else nyc
     pan: num('pan', 3.5),              // main-layer art pixels per second
     speed: num('speed', 1),            // time multiplier (e.g. 600 = 10 min per second)
     time: q.get('time'),               // fixed start time "HH:MM"
@@ -64,7 +64,26 @@
   const simNow = () => new Date(simStart + (Date.now() - realStart) * cfg.speed + timeOffset);
 
   // --- scene state --------------------------------------------------------------------------
-  const city = PS.cities[cfg.city] ? PS.cities[cfg.city](1337) : PS.cities.nyc(1337);
+  // --- city ---------------------------------------------------------------------------------
+  function pickCity() {
+    let key = cfg.city;
+    if (!key) { try { key = localStorage.getItem('pixelscapes.city'); } catch (e) { /* ignore */ } }
+    if (key === 'rotate') key = PS.cityList[Math.floor(Date.now() / 864e5) % PS.cityList.length].key;
+    return PS.cities[key] ? key : 'nyc';
+  }
+  const cityKey = pickCity();
+  const city = PS.cities[cityKey](1337);
+  city.key = city.key || cityKey;
+  const EVENTS = PS.EVENTS.concat(city.events || []);
+  // Switch city: remembered, applied by reloading (the scene is built once per page load).
+  function switchCity(dir) {
+    const list = PS.cityList, i = list.findIndex((c) => c.key === city.key);
+    const next = list[(i + dir + list.length) % list.length].key;
+    try { localStorage.setItem('pixelscapes.city', next); } catch (e) { /* ignore */ }
+    const u = new URL(location.href);
+    if (u.searchParams.has('city')) u.searchParams.set('city', next);
+    location.href = u.toString();
+  }
   for (const L of city.layers) {
     L.canvas = document.createElement('canvas');
     L.ctx = L.canvas.getContext('2d');
@@ -84,7 +103,7 @@
   let t = 0;
   const events = [];
   let nextEvent = 2, nextAmbient = 6;
-  const promenade = new PS.Promenade();
+  const promenade = city.foreground && city.foreground.kind === 'beach' && PS.Beach ? new PS.Beach(city.foreground) : new PS.Promenade(city.foreground);
   const claimed = new Set();
   const claimedGrid = new Set();
   let toast = null;
@@ -305,12 +324,13 @@
     const m = PS.moonPos(sun, phase, loc.lat);
     moonInfo = { alt: m.alt, x: sx(m.H), y: sy(m.alt), phase, visible: m.alt > 2 && phase > 0.04 && phase < 0.96 };
     P.sil = css(mix(hex('#07081a'), hex('#221e33'), P.day));
+    // Some cities have their own weather habits (SF's summer-morning fog).
+    weather.extraFog = city.fogMorning ? city.fogMorning * Math.max(0, 1 - Math.abs(hour - 8) / 3.5) * (1 - weather.cur.rain) : 0;
     weather.applyToPalette(P);
-    season = PS.season(now, city.lat);
+    season = PS.season(now, city.lat, city.holidays);
     PS.setMat('tree', season.foliage[0]); PS.setMat('tree2', season.foliage[1]); PS.setMat('tree3', season.foliage[2]);
     PS.setMat('grass', mix(hex('#4f7a45'), hex('#8a7a5a'), season.bare * 0.7));
-    const esb = season.esb ? season.esb.map(hex) : city.landmarks.esb && city.landmarks.esb.scheme;
-    if (esb) { PS.GLOWS.esb0 = esb[0]; PS.GLOWS.esb1 = esb[1]; PS.GLOWS.esb2 = esb[2]; }
+    if (city.glow) city.glow(season, now);
   }
 
   function renderAll(now) {
@@ -394,6 +414,10 @@
   function weightOf(e) {
     const h = season ? season.holidays : {};
     let w = e.w;
+    if (city.eventWeights && city.eventWeights[e.id] != null) w *= city.eventWeights[e.id];
+    if (h.carnaval && (e.id === 'party' || e.id === 'dancer' || e.id === 'fireworks')) w *= 4;
+    if (h.saoJoao && (e.id === 'fireworks' || e.id === 'lanterns' || e.id === 'party')) w *= 4;
+    if (h.fleetWeek && e.id === 'blueAngels') w *= 6;
     if (h.thanksgiving && e.id === 'paradeBalloon') w *= 8;
     if (h.halloween && (e.id === 'bats' || e.id === 'ghost' || e.id === 'witch')) w *= 5;
     if ((h.july4 || h.nye) && e.id === 'fireworks') w *= 6;
@@ -403,7 +427,7 @@
     return w;
   }
   function spawn(id) {
-    const cands = id ? PS.EVENTS.filter((e) => e.id === id) : PS.EVENTS.filter((e) => (!e.ok || e.ok(S)) && weatherOk(e.id) && weightOf(e) > 0);
+    const cands = id ? EVENTS.filter((e) => e.id === id) : EVENTS.filter((e) => (!e.ok || e.ok(S)) && weatherOk(e.id) && weightOf(e) > 0);
     if (!cands.length) return null;
     for (let attempt = 0; attempt < 6; attempt++) {
       let def;
@@ -483,6 +507,12 @@
     ny: [['#2a4a9a', '#e8a030', '#2a4a9a'], null],
     pride: [['#e84040', '#f0c030', '#40a0e0'], null],
     red: [['#d83a3a', '#d83a3a', '#d83a3a'], null],
+    br: [['#1f9a4a', '#f2d22a', '#1f9a4a'], '#2a4aa0'],
+    de: [['#1a1a1a', '#d8302a', '#f2c22a'], null],
+    eu: [['#2a4aa0', '#2a4aa0', '#2a4aa0'], '#f2d22a'],
+    ca: [['#f4f0e8', '#f4f0e8', '#c8302a'], '#6a4a2a'],
+    rio: [['#f4f0e8', '#2a5ac0', '#f4f0e8'], null],
+    pb: [['#c8302a', '#c8302a', '#1a1a1a'], null],
   };
   function drawMainAmbient(om) {
     const night = P.dark > 0.4;
@@ -647,6 +677,7 @@
     if (!musicState.actx) {
       musicState.actx = new AC();
       musicState.engine = new PS.Lofi(musicState.actx, {
+        words: city.musicWords,
         getMood: musicMood,
         volume: (() => { try { return +(localStorage.getItem('pixelscapes.volume') || 0.6); } catch (e) { return 0.6; } })(),
         // tracks are generated slightly ahead; queue them and switch the title when each one starts
@@ -852,7 +883,7 @@
     cloudOff += dt * (0.3 + weather.cur.wind * 3) * weather.cur.windDir;
     if (season && P.dark > 0.6 && weather.cur.rain < 0.6) {
       const h = season.holidays, hr = hour;
-      const show = (h.july4 && hr >= 21 && hr < 23.5) || (h.nye && (hr >= 23.9 || hr < 0.6));
+      const show = (h.july4 && hr >= 21 && hr < 23.5) || (h.nye && (hr >= 23.9 || hr < 0.6)) || (h.saoJoao && hr >= 20 && hr < 23);
       if (show && !events.some((e) => e.id === 'fireworks')) spawn('fireworks');
     }
     for (const ev of events) if (!ev.dead) { try { if (!ev.update(dt, S)) ev.dead = true; } catch (e) { ev.dead = true; console.error(ev.id, e); } }
@@ -879,6 +910,8 @@
     pM.ox = -mm.base;
     mark('ambient');
     drawMainAmbient(mm.om);
+    // City-specific animated details (cable cars, trains, LED crowns...) in main-layer coordinates.
+    if (city.ambient) { try { city.ambient(pM, S, dt); } catch (e) { console.error('city ambient', e); city.ambient = null; } }
     mark('events');
     drawEvents('main');
     drawEvents('front');
@@ -913,8 +946,8 @@
     const k = e.key.toLowerCase();
     if (k === 'e') { const ev = spawn(); toast = { msg: ev ? ev.id.toUpperCase() : 'NOTHING HAPPENED', t: 2 }; }
     else if (k === 'n') {
-      for (let i = 0; i < PS.EVENTS.length; i++) {
-        const def = PS.EVENTS[cycle++ % PS.EVENTS.length];
+      for (let i = 0; i < EVENTS.length; i++) {
+        const def = EVENTS[cycle++ % EVENTS.length];
         const ev = spawn(def.id);
         if (ev) { toast = { msg: def.id.toUpperCase(), t: 2 }; break; }
       }
@@ -925,6 +958,7 @@
     else if (k === 'f') { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => {}); }
     else if (k === 'h' || k === '?') help.classList.toggle('show');
     else if (k === 'd') cfg.debug = !cfg.debug;
+    else if (k === 'c') switchCity(e.shiftKey ? -1 : 1);
     else if (k === 'm') {
       if (musicState.on && !musicState.blocked) { musicOff(); toast = { msg: 'MUSIC OFF', t: 1.5 }; }
       else { musicOn(); toast = { msg: 'PIXELSCAPES FM', t: 1.5 }; }
