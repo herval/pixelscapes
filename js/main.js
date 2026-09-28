@@ -103,7 +103,10 @@
   let t = 0;
   const events = [];
   let nextEvent = 2, nextAmbient = 6;
-  const promenade = city.foreground && city.foreground.kind === 'beach' && PS.Beach ? new PS.Beach(city.foreground) : new PS.Promenade(city.foreground);
+  const fgKind = city.foreground && city.foreground.kind;
+  const promenade = fgKind === 'beach' ? new PS.Beach(city.foreground) : fgKind === 'sea' ? new PS.Sea(city.foreground) : new PS.Promenade(city.foreground);
+  // Open ocean (vs. river/bay): coloured shallows, weaker choppy reflections, swells and surf.
+  const ocean = city.water && city.water.kind === 'ocean' ? city.water : null;
   const claimed = new Set();
   const claimedGrid = new Set();
   let toast = null;
@@ -298,17 +301,26 @@
   function renderWater() {
     const w = VW, h = VH - horizon;
     const img = waterCtx.createImageData(w, h), d = img.data;
-    const base = P.wat;
-    const a0 = 0.46 + 0.04 * P.day, a1 = 0.78 + 0.04 * P.day;
+    let base = P.wat;
+    let a0 = 0.46 + 0.04 * P.day, a1 = 0.78 + 0.04 * P.day;
+    let shallow = null, deep = null;
+    if (ocean) {
+      // lit sea colours: turquoise over the sandy shallows by the beach, deep blue toward the viewer
+      const lit = PS.add(P.amb, PS.scale(P.sun, 0.35));
+      const tone = (c) => mix(PS.mul(hex(c), lit), P.wat, 0.25 + 0.5 * P.dark);
+      shallow = tone(ocean.shallow || '#3cc0b0'); deep = tone(ocean.deep || '#1d5f8e');
+      a0 = 0.62 + 0.25 * P.day; a1 = 0.86 + 0.1 * P.day;
+    }
     for (let y = 0; y < h; y++) {
       const k = y / Math.max(1, h - 1);
+      const col = ocean ? mix(shallow, deep, smooth(0.05, 0.7, k)) : base;
       for (let x = 0; x < w; x++) {
         const b = PS.bayer(x, y);
         let a = a0 + (a1 - a0) * k;
         a = Math.floor(a * 8 + b) / 8;
         if (y % 3 === 1 && b > 0.35) a += 0.08; // ripple troughs
         const i = (y * w + x) * 4;
-        d[i] = base[0]; d[i + 1] = base[1]; d[i + 2] = base[2]; d[i + 3] = Math.min(255, a * 255);
+        d[i] = col[0]; d[i + 1] = col[1]; d[i + 2] = col[2]; d[i + 3] = Math.min(255, a * 255);
       }
     }
     waterCtx.putImageData(img, 0, 0);
@@ -616,7 +628,7 @@
     fctx.setTransform(1, 0, 0, 1, 0, 0);
     const offs = [];
     for (let r = 0; r < band; r++) {
-      const amp = 0.4 + r * 0.07;
+      const amp = (0.4 + r * 0.07) * (ocean ? 2.4 : 1);
       offs.push(Math.round(Math.sin(r * 0.9 + t * 1.8 + Math.sin(r * 0.37 - t * 0.7) * 2) * amp));
     }
     for (let r = 0; r < band;) {
@@ -628,8 +640,46 @@
     ctx.drawImage(water, 0, 0, VW, wh, 0, horizon * s, VW * s, wh * s);
   }
 
+  // Ocean: swells rolling in toward the shore, whitecaps, and surf breaking on the beach.
+  function drawOcean(om) {
+    const wh = VH - horizon;
+    const lit = PS.add(P.amb, PS.scale(P.sun, 0.35));
+    const foam = mix(PS.mul([240, 246, 250], [Math.min(1, lit[0] + 0.15), Math.min(1, lit[1] + 0.15), Math.min(1, lit[2] + 0.15)]), P.hor, 0.2);
+    const trough = PS.mul(hex(ocean.deep || '#1d5f8e'), PS.scale(lit, 0.6));
+    const drift = cam * 1.2;
+    for (let k = 0; k < 7; k++) {
+      const p = (t / 11 + k / 7) % 1;               // 0 = near the viewer, 1 = at the shore
+      const y = Math.round(VH - 3 - p * (wh - 5));
+      const near = 1 - p, cell = 4 + Math.round(near * 6);
+      const fade = Math.sin(p * Math.PI) * 0.9 + 0.1;
+      ctx.fillStyle = PS.cssA(trough, 0.22 * fade);
+      pS.rect(0, y + 1, VW, near > 0.5 ? 2 : 1);
+      ctx.fillStyle = PS.cssA(foam, (0.18 + 0.2 * near) * fade);
+      const off = drift * (0.6 + near * 0.6) + k * 37;
+      for (let cx = -((off % cell) + cell) % cell; cx < VW; cx += cell) {
+        const idx = Math.floor((cx + off) / cell);
+        const hsh = PS.hash(idx, k * 131 + Math.floor(t / 11 + k / 7));
+        if (hsh < 0.3) continue;
+        pS.rect(Math.round(cx), y, Math.max(1, Math.round(cell * (0.4 + hsh * 0.5))), 1);
+        if (hsh > 0.93 && P.day > 0.2) { ctx.fillStyle = PS.cssA(foam, 0.7 * fade); pS.rect(Math.round(cx) + 1, y - 1, 2, 1); ctx.fillStyle = PS.cssA(foam, (0.18 + 0.2 * near) * fade); }
+      }
+    }
+    // surf line along the beach: a foam band that surges and pulls back
+    const surge = (Math.sin(t * 0.9) + 1) / 2;
+    ctx.fillStyle = PS.cssA(foam, 0.75 - 0.35 * P.dark);
+    const tick = Math.floor(t * 3);
+    for (let x = 0; x < VW; x += 2) {
+      const wx = Math.floor((x + om) / 2);
+      const hsh = PS.hash(wx, 7);
+      const depth = 1 + Math.round(hsh * 1.5 + surge * 1.5);
+      pM.rect(Math.floor(om / 2) * 2 + x, horizon, 2, depth);
+      if (PS.hash(wx, tick) > 0.8) pM.rect(Math.floor(om / 2) * 2 + x, horizon + depth + 1, 1, 1);
+    }
+  }
+
   function drawWaterSparkle(om) {
     const wh = VH - horizon;
+    if (ocean) drawOcean(om);
     const hl = mix(P.hor, [255, 255, 255], 0.35);
     const hlc = PS.cssA(hl, 0.35 + 0.25 * P.day);
     ctx.fillStyle = hlc;

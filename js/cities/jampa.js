@@ -799,7 +799,9 @@
         { y: 1, x0: HOTEL_X + (HOTEL_W >> 1) + 2, x1: BEACH[1], dir: 1 },
       ],
       holidays: ['xmas', 'nye', 'carnaval', 'saoJoao', 'outubroRosa', 'novembroAzul'],
-      foreground: { kind: 'beach', jangadas: true, mosaic: false },
+      // Seen from the open Atlantic (not across a river): sea foreground, ocean water with surf.
+      foreground: { kind: 'sea', deep: '#1a5a86' },
+      water: { kind: 'ocean', shallow: '#3cc4b4', deep: '#1d5f8e' },
       flags: 'br',
       glow(season) {
         const e = season && season.esb;

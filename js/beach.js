@@ -203,4 +203,40 @@
       }
     }
   };
+
+  // Open-sea foreground (João Pessoa seen from the water): big near swells rolling past the viewer.
+  PS.Sea = class {
+    constructor(o) { this.o = o || {}; this.par = 1.45; this.peds = []; }
+    update() {}
+    draw(p, S, camF) {
+      const VH = S.VH, P = S.P, t = S.t;
+      p.ox = 0;
+      const lit = PS.add(P.amb, PS.scale(P.sun, 0.4));
+      const deep = PS.mix(PS.mul(hex(this.o.deep || '#1a5a86'), lit), P.wat, 0.2 + 0.5 * P.dark);
+      const body = PS.mix(deep, [0, 0, 0], 0.15);
+      const crest = PS.mix(deep, [230, 245, 250], 0.35 - 0.2 * P.dark);
+      const foam = PS.mix(PS.mul([240, 246, 250], [Math.min(1, lit[0] + 0.2), Math.min(1, lit[1] + 0.2), Math.min(1, lit[2] + 0.2)]), P.hor, 0.2);
+      const VW = S.VW;
+      // two layers of long swells, the nearest largest
+      for (const [amp, base, speed, len, k] of [[1.6, VH - 9, 0.5, 0.045, 0], [2.4, VH - 4, 0.8, 0.032, 1]]) {
+        const off = camF * (1 + k * 0.4);
+        for (let x = 0; x < VW; x++) {
+          const ph = (x + off) * len + t * speed + k * 2;
+          const y = Math.round(base + Math.sin(ph) * amp + Math.sin(ph * 2.3 + 1) * amp * 0.35);
+          p.rect(x, y + 1, 1, VH - y, css(body));
+          p.rect(x, y, 1, 1, css(crest));
+          const slope = Math.cos(ph);
+          if (slope < -0.75 && PS.hash(Math.floor(x + off), Math.floor(t * 2) + k) > 0.45) p.rect(x, y - 1, 1, 1, css(foam));
+        }
+      }
+      // glints on the near water
+      if (P.day > 0.3 && !P.sunHidden) {
+        const tick = Math.floor(t * 4);
+        for (let i = 0; i < 18; i++) {
+          if (PS.hash(i, tick) > 0.5) continue;
+          p.rect(Math.floor(PS.hash(i * 3, tick) * VW), VH - 7 + Math.floor(PS.hash(i * 7, tick) * 6), 2, 1, PS.cssA([255, 250, 230], 0.5));
+        }
+      }
+    }
+  };
 })();
