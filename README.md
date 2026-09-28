@@ -6,7 +6,17 @@
 
 A living pixel-art city skyline that slowly pans, follows the real time of day where you are, and has silly things happening in it.
 
-Starts with **New York**: Empire State (with nightly crown colors), Chrysler, One WTC, Woolworth, Citigroup, 432 Park, Steinway, Central Park Tower, Hudson Yards, the Brooklyn Bridge and the Statue of Liberty, plus hundreds of generated buildings with water towers.
+## Cities
+
+Press `C` to switch city (`Shift+C` goes back). Your choice is remembered. You can also pick one with `?city=nyc|rio|berlin|sf|jampa`, or use `?city=rotate` for a different city every day.
+
+- **New York** (`nyc`): Empire State (with nightly crown colors), Chrysler, One WTC, Woolworth, Citigroup, 432 Park, Steinway, Central Park Tower, Hudson Yards, the Brooklyn Bridge and the Statue of Liberty, plus hundreds of generated buildings with water towers.
+- **Rio de Janeiro** (`rio`): Sugarloaf with its cable car, Christ the Redeemer on Corcovado (pink in October, blue in November), favelas twinkling on the hills, and a Copacabana beach with the wave mosaic.
+- **Berlin** (`berlin`): the TV Tower, Oberbaum Bridge with U-Bahn trains, Reichstag, Berliner Dom, prefab blocks and cranes along the Spree.
+- **San Francisco** (`sf`): the Golden Gate and Bay Bridge (with the Bay Lights), Transamerica Pyramid, Salesforce Tower's LED crown, pastel houses on the hills, and morning fog.
+- **João Pessoa** (`jampa`): the stepped beachfront skyline (height limits by the sea), the Cabo Branco lighthouse, Estação Cabo Branco, Hotel Tambaú, coconut palms and jangadas.
+
+Each city has its own holidays (Carnaval, São João, Fleet Week, Festival of Lights, Lunar New Year...), its own events, flags and blimp messages, and its own song titles on the radio.
 
 Everything is procedural (no image assets), so it's one static folder you can open straight from disk.
 
@@ -95,11 +105,12 @@ Keyboard: `M` turns music on or off (it's remembered), `T` skips to the next tra
 | `units` | auto | `c` or `f` for the caption temperature |
 | `music` | remembered | `1` to play the lo-fi radio, `0` to disable it |
 | `nowplaying` | `auto` | music widget: `auto` (on mouse move / new song), `always`, `off` |
+| `city` | remembered | `nyc`, `rio`, `berlin`, `sf`, `jampa`, or `rotate` (daily) |
 | `debug` | | show a debug overlay |
 
 ## Keys
 
-`E` random event · `N` cycle through events · `W` cycle weather · `M` music · `T` next track · `−`/`+` volume · `[` / `]` move time back/forward 30 min · `\` back to now · `P` pause the pan · `F` fullscreen · `D` debug · `H` help. Double-click for a surprise.
+`C` next city · `E` random event · `N` cycle through events · `W` cycle weather · `M` music · `T` next track · `−`/`+` volume · `[` / `]` move time back/forward 30 min · `\` back to now · `P` pause the pan · `F` fullscreen · `D` debug · `H` help. Double-click for a surprise.
 
 ## Performance
 
@@ -114,12 +125,14 @@ To profile, run `node tools/perf.mjs [--webkit] [--gpu] [--dpr=2] [--size=1512x9
 - `js/weather.js`: live weather, transitions, rain/snow/fog/lightning
 - `js/season.js`: foliage, holidays and landmark lighting through the year
 - `js/city.js`: building toolkit (`Builder`) and the lighting-aware layer renderer
-- `js/nyc.js`: New York (skyline envelope, landmarks, bridge, statue, shore)
+- `js/citykit.js`: shared city generators (styled buildings, prefab slabs, mountains, hillside houses, palms, shorelines) and the city registry
+- `js/nyc.js`, `js/cities/*.js`: the cities (landmarks, layout, style, holidays, events)
+- `js/beach.js`: beach foreground for Rio and João Pessoa
 - `js/events.js`: all random events and their sprites
 - `js/promenade.js`: the foreground promenade and its passers-by
 - `js/music.js`: Pixelscapes FM, the generative lo-fi radio
 - `js/main.js`: engine (layers, parallax, reflections, clouds, stars, scheduler, input)
 
-To add a city, write `PS.cities.<name>` in a file shaped like `nyc.js`, then load it with `?city=<name>`.
+To add a city, call `PS.registerCity(key, name, build)` in a new file shaped like `nyc.js` and add it to `index.html`.
 
 `tools/shot.mjs` takes Playwright screenshots for checking visuals: `node tools/shot.mjs out.png "time=19:00&event=ufo" 3000`.
