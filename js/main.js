@@ -87,7 +87,7 @@
   const claimedGrid = new Set();
   let toast = null;
   let lastRain = -1e9;
-  let season = null, builtCover = -1, cloudOff = 0;
+  let season = null, builtCover = -1, cloudOff = 0, lastSig = '';
   const weather = new PS.Weather({ preset: ['live', 'city', 'off'].includes(cfg.weather) ? null : cfg.weather, off: cfg.weather === 'off' });
   function refreshWeather() {
     const at = cfg.weather === 'city' ? { lat: city.lat, lon: city.lon } : loc;
@@ -258,6 +258,17 @@
         d[i] = PS.lerp(d[i], c[0], a); d[i + 1] = PS.lerp(d[i + 1], c[1], a); d[i + 2] = PS.lerp(d[i + 2], c[2], a);
       }
     }
+    // steady stars are baked in; twinkling ones are drawn per frame
+    if (P.stars > 0.01) {
+      for (const st of stars) {
+        if (st.tw || st.big) continue;
+        if (moon && moon.visible && Math.abs(st.x - moon.x) < 9 && Math.abs(st.y - moon.y) < 9) continue;
+        const a = st.b * P.stars * (1 - smooth(h * 0.5, h * 0.9, st.y));
+        if (a < 0.05) continue;
+        const i = (st.y * w + st.x) * 4;
+        d[i] += (st.c[0] - d[i]) * a; d[i + 1] += (st.c[1] - d[i + 1]) * a; d[i + 2] += (st.c[2] - d[i + 2]) * a;
+      }
+    }
     skyCtx.putImageData(img, 0, 0);
   }
 
@@ -421,6 +432,7 @@
   function drawStars() {
     if (P.stars <= 0.01) return;
     for (const st of stars) {
+      if (!st.tw && !st.big) continue;
       if (moonInfo.visible && Math.abs(st.x - moonInfo.x) < 9 && Math.abs(st.y - moonInfo.y) < 9) continue;
       let a = st.b * P.stars;
       if (st.tw) a *= 0.55 + 0.45 * Math.sin(t * st.tw + st.ph);
@@ -547,16 +559,37 @@
     }
   }
 
+  // The reflection samples the band just above the waterline once per frame (a single snapshot
+  // into a small art-resolution buffer), then draws rippled rows from that buffer.
+  const reflBuf = document.createElement('canvas'), reflCtx = reflBuf.getContext('2d');
   function drawReflection() {
     const wh = VH - horizon;
+    const band = Math.min(wh, horizon);
+    if (reflBuf.width !== VW || reflBuf.height !== band) { reflBuf.width = VW; reflBuf.height = band; }
+    reflCtx.imageSmoothingEnabled = false;
+    reflCtx.clearRect(0, 0, VW, band);
+    reflCtx.drawImage(canvas, 0, (horizon - band) * s, VW * s, band * s, 0, 0, VW, band);
     ctx.fillStyle = css(P.wat);
     ctx.fillRect(0, horizon * s, SW, wh * s);
-    for (let r = 0; r < wh; r++) {
-      const src = horizon - 1 - r;
-      if (src < 0) break;
+    // mirror the band once, then draw runs of rows that share a ripple offset in a single call
+    if (!reflBuf.flip) { reflBuf.flip = document.createElement('canvas'); }
+    const fl = reflBuf.flip;
+    if (fl.width !== VW || fl.height !== band) { fl.width = VW; fl.height = band; }
+    const fctx = fl.getContext('2d');
+    fctx.setTransform(1, 0, 0, -1, 0, band);
+    fctx.clearRect(0, 0, VW, band);
+    fctx.drawImage(reflBuf, 0, 0);
+    fctx.setTransform(1, 0, 0, 1, 0, 0);
+    const offs = [];
+    for (let r = 0; r < band; r++) {
       const amp = 0.4 + r * 0.07;
-      const off = Math.round(Math.sin(r * 0.9 + t * 1.8 + Math.sin(r * 0.37 - t * 0.7) * 2) * amp);
-      ctx.drawImage(canvas, 0, src * s, SW, s, off * s, (horizon + r) * s, SW, s);
+      offs.push(Math.round(Math.sin(r * 0.9 + t * 1.8 + Math.sin(r * 0.37 - t * 0.7) * 2) * amp));
+    }
+    for (let r = 0; r < band;) {
+      let e = r + 1;
+      while (e < band && offs[e] === offs[r]) e++;
+      ctx.drawImage(fl, 0, r, VW, e - r, offs[r] * s, (horizon + r) * s, VW * s, (e - r) * s);
+      r = e;
     }
     ctx.drawImage(water, 0, 0, VW, wh, 0, horizon * s, VW * s, wh * s);
   }
@@ -624,6 +657,15 @@
     lines.forEach((l, i) => { pS.rect(3, 3 + i * 7, PS.textWidth(l) + 4, 7, 'rgba(0,0,0,0.5)'); pS.text(l, 5, 4 + i * 7, '#9fffb0'); });
   }
 
+  // --- profiling (?profile): per-section CPU time --------------------------------------------
+  const prof = { on: q.has('profile'), acc: {}, frames: 0, last: 0 };
+  const mark = (name) => {
+    if (!prof.on) return;
+    const now = performance.now();
+    if (prof.cur) prof.acc[prof.cur] = (prof.acc[prof.cur] || 0) + now - prof.last;
+    prof.cur = name; prof.last = now;
+  };
+
   // --- loop ---------------------------------------------------------------------------------
   let last = performance.now(), fpsCount = 0, fpsShown = 0, fpsT = 0;
   function frame(nowMs) {
@@ -636,9 +678,22 @@
     t += dt;
     if (!paused) cam += cfg.pan * dt;
 
+    prof.frames++; mark('renderAll');
     const now = simNow();
-    const interval = cfg.speed > 20 ? 250 : 4000;
-    if (dirty || performance.now() - lastRender > interval) { renderAll(now); lastRender = performance.now(); }
+    // Repaint the (expensive) static layers only when what they depict has actually changed.
+    let due = dirty;
+    if (!due && performance.now() - lastRender > (cfg.speed > 20 ? 250 : 1000)) {
+      const sun = PS.sunPos(now, loc.lat, loc.lon), w = weather.cur;
+      const sig = [Math.round(sun.alt * 4), Math.floor((now.getHours() * 60 + now.getMinutes()) / 3),
+        Math.round(w.cloud * 30), Math.round(w.rain * 30), Math.round(w.snow * 30), Math.round(w.fog * 30), Math.round(w.snowCover * 20), VW, VH].join();
+      if (sig !== lastSig) { lastSig = sig; due = true; } else lastRender = performance.now();
+    }
+    if (due) {
+      const t0 = performance.now();
+      renderAll(now); lastRender = performance.now();
+      if (prof.on) { const d = lastRender - t0; prof.renderMax = Math.max(prof.renderMax || 0, d); prof.renders = (prof.renders || 0) + 1; }
+    }
+    mark('simulate');
 
     // simulate
     for (const c of cars) {
@@ -672,10 +727,15 @@
 
     // draw
     ctx.imageSmoothingEnabled = false;
+    mark('sky');
     ctx.drawImage(sky, 0, 0, VW, horizon, 0, 0, VW * s, horizon * s);
+    mark('stars');
     drawStars();
+    mark('clouds');
     drawClouds();
+    mark('events');
     drawEvents('sky');
+    mark('layers');
     const far = city.layers[0], mid = city.layers[1];
     const fo = blitLayer(far, cam * far.par); drawBlinkers(far, fo.om, fo.base, pM);
     const mo = blitLayer(mid, cam * mid.par); drawBlinkers(mid, mo.om, mo.base, pM);
@@ -684,20 +744,31 @@
     S._om = mm.om;
     drawBlinkers(main, mm.om, mm.base, pM);
     pM.ox = -mm.base;
+    mark('ambient');
     drawMainAmbient(mm.om);
+    mark('events');
     drawEvents('main');
     drawEvents('front');
+    mark('reflection');
     drawReflection();
+    mark('water');
     drawWaterSparkle(mm.om);
+    mark('events');
     drawEvents('water');
+    mark('fog');
     weather.draw(pS, S, dt, 'fog');
+    mark('promenade');
     promenade.draw(pM, S, cam * promenade.par);
     pM.ox = -mm.base;
+    mark('events');
     drawEvents('top');
+    mark('precip');
     weather.draw(pS, S, dt, 'precip');
+    mark('hud');
     drawLabel();
     drawToast();
     drawDebug(fpsShown);
+    mark(null);
   }
 
   // --- input --------------------------------------------------------------------------------
@@ -736,5 +807,7 @@
   renderAll(simNow());
   if (cfg.event) setTimeout(() => cfg.event.split(',').forEach((id) => spawn(id)), 300);
   requestAnimationFrame(frame);
-  window.pixelscapes = { get fps() { return fpsShown; }, spawn, S, cfg, setCam: (x) => { cam = x; }, render: () => { dirty = true; } };
+  window.pixelscapes = {
+    get fps() { return fpsShown; },
+    profile() { const out = {}; for (const k in prof.acc) out[k] = +(prof.acc[k] / prof.frames).toFixed(2); out.frames = prof.frames; out.renderMax = prof.renderMax; return out; }, spawn, S, cfg, setCam: (x) => { cam = x; }, render: () => { dirty = true; } };
 })();

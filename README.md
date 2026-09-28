@@ -80,6 +80,12 @@ Something new starts every few seconds, with ambient life (planes, birds, gulls,
 
 `E` random event · `N` cycle through events · `W` cycle weather · `[` / `]` move time back/forward 30 min · `\` back to now · `P` pause the pan · `F` fullscreen · `D` debug · `H` help. Double-click for a surprise.
 
+## Performance
+
+At retina resolution it holds 60fps with under 1ms of CPU per frame in WebKit (the engine Plash uses) and in Chrome with GPU acceleration. By default it's capped at 30fps. For a lighter wallpaper, lower `fps` (e.g. `?fps=20`) or use chunkier pixels (`?res=200`). Rendering pauses automatically when the page is hidden.
+
+To profile, run `node tools/perf.mjs [--webkit] [--gpu] [--dpr=2] [--size=1512x982] "query"`. It prints the frame rate and a per-section CPU breakdown using the app's `?profile` mode.
+
 ## Code layout
 
 - `js/util.js`: RNG, color math, dithering, the pixel painter and a 3×5 font
