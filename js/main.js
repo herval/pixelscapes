@@ -873,8 +873,10 @@
     nextAmbient -= dt * cfg.events;
     if (nextAmbient <= 0) {
       const pool = P.day > 0.4 ? ['plane', 'birds', 'birds', 'seagulls', 'tug', 'ferry'] : P.dark > 0.6 ? ['plane', 'plane', 'shootingStar', 'helicopter', 'ferry'] : ['plane', 'birds', 'ferry'];
-      const id = R.pick(pool);
-      const ev = events.some((e) => e.id === id && id !== 'plane' && id !== 'birds') ? null : spawn(id);
+      // respect per-city weights (e.g. no Staten Island ferry in João Pessoa)
+      const ok = pool.filter((id) => !(city.eventWeights && city.eventWeights[id] === 0));
+      const id = ok.length ? R.pick(ok) : null;
+      const ev = !id || events.some((e) => e.id === id && id !== 'plane' && id !== 'birds') ? null : spawn(id);
       if (ev) ev.ambient = true;
       nextAmbient = R.range(8, 18);
     }
@@ -903,6 +905,9 @@
     const far = city.layers[0], mid = city.layers[1];
     const fo = blitLayer(far, cam * far.par); drawBlinkers(far, fo.om, fo.base, pM);
     const mo = blitLayer(mid, cam * mid.par); drawBlinkers(mid, mo.om, mo.base, pM);
+    // 'back' events may live in main-layer coordinates: give them the main layer's offset
+    S._om = ((cam % WM) + WM) % WM;
+    pM.ox = -Math.round(S._om * s);
     drawEvents('back');
     const mm = blitLayer(main, cam);
     S._om = mm.om;
