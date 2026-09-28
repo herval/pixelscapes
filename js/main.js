@@ -75,10 +75,12 @@
   let cam = cfg.cam != null ? cfg.cam : R() * WM, paused = false;
   let t = 0;
   const events = [];
-  let nextEvent = 3;
+  let nextEvent = 2, nextAmbient = 6;
+  const promenade = new PS.Promenade();
   const claimed = new Set();
   const claimedGrid = new Set();
   let toast = null;
+  let lastRain = -1e9;
 
   function layout() {
     const dpr = window.devicePixelRatio || 1;
@@ -138,6 +140,7 @@
 
   function renderClouds() {
     const lit = P.cl, body = P.cb, sh = P.cs;
+    const rim = mix(lit, P.day > 0.5 ? [255, 255, 255] : mix(P.glow, [255, 255, 255], 0.3), 0.35 + 0.3 * P.golden);
     const sunLeft = (sunInfo ? sunInfo.dir : 0) < 0;
     for (const c of clouds) {
       const { w, h, mask } = c;
@@ -151,7 +154,8 @@
         let col = body;
         const up1 = at(x, y - 1), up2 = at(x, y - 2), dn1 = at(x, y + 1), dn2 = at(x, y + 2);
         const side = sunLeft ? at(x - 1, y) : at(x + 1, y);
-        if (!up1 || (!up2 && b > 0.4) || (!side && b > 0.5)) col = lit;
+        if (!up1 && (!side || b > 0.3)) col = rim;
+        else if (!up1 || (!up2 && b > 0.4) || (!side && b > 0.5)) col = lit;
         else if (!dn1 || (!dn2 && b > 0.5) || y > h * 0.75) col = sh;
         const i = (y * w + x) * 4;
         d[i] = col[0]; d[i + 1] = col[1]; d[i + 2] = col[2]; d[i + 3] = 255;
@@ -175,6 +179,7 @@
     }
     const sun = sunInfo, moon = moonInfo;
     const glowR = 36 + 90 * P.golden + 16 * P.day, glowS = 0.12 + 0.62 * P.golden;
+    const lp = 0.4 * P.stars; // city light pollution glow
     const mGlow = moon && moon.visible ? 0.16 * P.stars * (0.3 + 0.7 * Math.sin(moon.phase * Math.PI)) : 0;
     for (let y = 0; y < h; y++) {
       const lvl = (y / (h - 1)) * N;
@@ -195,6 +200,10 @@
           const dx = x - moon.x, dy = y - moon.y;
           const dd = Math.sqrt(dx * dx + dy * dy);
           if (dd < 28) { const qg = Math.floor((1 - dd / 28) ** 2 * mGlow * 6 + b) / 6; if (qg > 0) c = mix(c, [190, 200, 235], qg); }
+        }
+        if (lp > 0) {
+          const k = (y - h * 0.55) / (h * 0.45);
+          if (k > 0) { const qg = Math.floor(k * k * lp * 6 + b) / 6; if (qg > 0) c = mix(c, [120, 70, 110], qg); }
         }
         const i = (y * w + x) * 4;
         d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255;
@@ -324,7 +333,7 @@
       for (const rf of main.B.roofs) {
         if (claimed.has(rf) || rf.w < minW) continue;
         const X = S.mx(rf.x) - S._om;
-        if (X < VW * 0.3 || X + rf.w > VW - 6) continue;
+        if (X < VW * 0.12 || X + rf.w > VW - 6) continue;
         if (groundY + rf.y < 22) continue;
         const wgt = (rf.sky ? 4 : 1) * (rf.row === 'back' ? 1.5 : 1);
         cands.push([rf, wgt]);
@@ -349,6 +358,8 @@
         def = cands.find((e) => (r -= e.w) <= 0) || cands[0];
       }
       if (!id && events.some((e) => e.id === def.id) && def.id !== 'plane' && def.id !== 'birds') continue;
+      if (!id && def.id === 'rain' && t - lastRain < 600) continue;
+      if (def.id === 'rain') lastRain = t;
       const ev = def.make(S);
       if (ev) { ev.id = def.id; events.push(ev); return ev; }
       if (id) return null;
@@ -410,8 +421,53 @@
     }
   }
 
+  const FLAGS = {
+    us: [['#c83a3a', '#f4f0e8', '#c83a3a'], '#2a4a9a'],
+    ny: [['#2a4a9a', '#e8a030', '#2a4a9a'], null],
+    pride: [['#e84040', '#f0c030', '#40a0e0'], null],
+    red: [['#d83a3a', '#d83a3a', '#d83a3a'], null],
+  };
   function drawMainAmbient(om) {
     const night = P.dark > 0.4;
+    const B = main.B;
+    // steam vents
+    const steam = mix(hex('#e8eaf0'), P.hor, 0.35);
+    for (const v of B.vents) {
+      const X = S.mx(v.x);
+      if (X - om < -10 || X - om > VW + 10) continue;
+      for (let i = 0; i < 6; i++) {
+        const age = (t * 0.35 + i / 6 + v.ph) % 1;
+        const a = (1 - age) * (0.5 + 0.2 * P.dark);
+        const sz = age < 0.3 ? 1 : age < 0.7 ? 2 : 3;
+        pM.rect(Math.round(X + age * 7 + Math.sin(age * 6 + v.ph) * 1.2), Math.round(groundY + v.y - age * 13), sz, sz > 1 ? sz - 1 : 1, PS.cssA(steam, a));
+      }
+    }
+    // flags
+    for (const f of B.flags) {
+      const X = S.mx(f.x);
+      if (X - om < -6 || X - om > VW + 6) continue;
+      const [stripes, canton] = FLAGS[f.kind];
+      const lit = PS.add(P.amb, PS.scale(P.sun, 0.5));
+      for (let i = 0; i < 5; i++) {
+        const wy = Math.round(Math.sin(t * 5 - i * 0.9 + f.ph) * (i / 4));
+        for (let j = 0; j < 3; j++) {
+          const c = canton && i < 2 && j < 2 ? canton : stripes[j];
+          pM.rect(X + i, groundY + f.y + j + wy, 1, 1, css(PS.mul(hex(c), lit)));
+        }
+      }
+    }
+    // neon signs
+    for (const n of B.signs) {
+      const X = S.mx(n.x);
+      if (X - om < -6 || X - om > VW + 6) continue;
+      const on = P.dark > 0.2 && !(n.flick && PS.hash(Math.floor(t * 7), n.x) < 0.25);
+      if (on) {
+        ctx.globalAlpha = 0.3 * P.dark;
+        pM.rect(X - 1, groundY + n.y - 1, n.w + 2, n.h + 2, n.c);
+        ctx.globalAlpha = 1;
+        pM.rect(X, groundY + n.y, n.w, n.h, n.c);
+      } else pM.rect(X, groundY + n.y, n.w, n.h, css(PS.mul(hex(n.c), PS.scale(P.amb, 0.5))));
+    }
     // cars
     for (const c of cars) {
       const X = S.mx(c.x);
@@ -482,8 +538,8 @@
     const hh = now.getHours(), mm = String(now.getMinutes()).padStart(2, '0');
     const str = `${city.name}  ${(hh % 12) || 12}:${mm} ${hh < 12 ? 'AM' : 'PM'}`;
     ctx.globalAlpha = a;
-    pS.text(str, 7, VH - 11, 'rgba(0,0,0,0.5)');
-    pS.text(str, 6, VH - 12, '#f4f0e6');
+    pS.text(str, 7, 7, 'rgba(0,0,0,0.5)');
+    pS.text(str, 6, 6, '#f4f0e6');
     ctx.globalAlpha = 1;
   }
 
@@ -530,9 +586,19 @@
     }
     nextEvent -= dt * cfg.events;
     if (nextEvent <= 0) {
-      if (events.length < 4) spawn();
-      nextEvent = R.range(7, 20);
+      if (events.filter((e) => !e.ambient).length < 6) spawn();
+      nextEvent = R.range(3, 9);
     }
+    // background life that doesn't count against the event budget
+    nextAmbient -= dt * cfg.events;
+    if (nextAmbient <= 0) {
+      const pool = P.day > 0.4 ? ['plane', 'birds', 'birds', 'seagulls', 'tug', 'ferry'] : P.dark > 0.6 ? ['plane', 'plane', 'shootingStar', 'helicopter', 'ferry'] : ['plane', 'birds', 'ferry'];
+      const id = R.pick(pool);
+      const ev = events.some((e) => e.id === id && id !== 'plane' && id !== 'birds') ? null : spawn(id);
+      if (ev) ev.ambient = true;
+      nextAmbient = R.range(8, 18);
+    }
+    promenade.update(dt, S, cam * promenade.par);
     for (const ev of events) if (!ev.dead) { try { if (!ev.update(dt, S)) ev.dead = true; } catch (e) { ev.dead = true; console.error(ev.id, e); } }
     for (let i = events.length - 1; i >= 0; i--) if (events[i].dead) { events[i].done && events[i].done(); events.splice(i, 1); }
 
@@ -556,6 +622,9 @@
     drawReflection();
     drawWaterSparkle(mm.om);
     drawEvents('water');
+    promenade.draw(pM, S, cam * promenade.par);
+    pM.ox = -mm.base;
+    drawEvents('top');
     drawLabel();
     drawToast();
     drawDebug(fpsShown);

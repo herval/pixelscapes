@@ -53,6 +53,24 @@
     const top = blocks[blocks.length - 1];
     let free = { x: top.x + 1, w: top.w - 2 };
 
+    // Fire escapes zig-zagging down brick walk-ups
+    const brickish = mat.startsWith('brick') || mat === 'brown';
+    if (row === 'front' && brickish && w >= 9 && h >= 16 && r() < 0.6) {
+      const fx = x + 2 + r.int(0, Math.max(0, w - 12));
+      const py = win.py || 2;
+      let flip = false;
+      for (let y = -h + 4; y < -6; y += (py + 1) * 2) {
+        B.f(fx, y + 1, 4, 1, 'black', 'flat', { a: 0.5 });
+        B.line(flip ? fx + 3 : fx, y + 2, flip ? fx : fx + 3, Math.min(-6, y + (py + 1) * 2), 'black', 'flat', { a: 0.28 });
+        flip = !flip;
+      }
+    }
+    // Neon signs at street level (animated at night)
+    if (row === 'front' && w >= 6 && r() < 0.35) {
+      const sw = r.int(2, Math.min(5, w - 3)), sh = r.int(1, 2);
+      B.signs.push({ x: x + 1 + r.int(0, w - sw - 2), y: -r.int(4, 8), w: sw, h: sh, c: r.pick(['#ff3a7a', '#3af0ff', '#ff5a3a', '#b25aff', '#5aff8a', '#ffd23a']), flick: r() < 0.3 });
+    }
+
     // Street-level shop glow on low buildings
     if (row === 'front' && r() < 0.6) B.emit(x + 1, -2, Math.max(1, w - 3), 1, mat, r.pick(['#ffcf80', '#ffe2a8', '#ff9f6b', '#a8e0ff']), 'dark');
 
@@ -72,12 +90,35 @@
         while (cw > 1) { cy -= 1; B.f(cx - (cw >> 1), cy, cw, 1, cm, 'front'); B.f(cx - (cw >> 1), cy, 1, 1, cm, 'rim'); cw -= 2; }
         B.f(cx, cy - r.int(3, 8), 1, r.int(3, 8), 'steel', 'flat');
         free = null;
-      } else B.antenna(cx, top.top, r.int(6, 16));
+      } else {
+        B.antenna(cx, top.top, r.int(6, 16));
+        free = { x: top.x + 1, w: cx - top.x - 3 };
+      }
     } else if (roll < 0.8 && top.w >= 6) {
       const bw = r.int(2, Math.min(5, top.w - 3)), bh = r.int(1, 3);
       const bx = top.x + r.int(1, top.w - bw - 1);
       B.box(bx, top.top - bh, bw, bh, 'roof', { side: 1 });
       free = bx - top.x > top.x + top.w - bx - bw ? { x: top.x + 1, w: bx - top.x - 2 } : { x: bx + bw + 1, w: top.x + top.w - bx - bw - 2 };
+    }
+    // Small rooftop life: steam vents, flags, gardens, AC units
+    if (free && free.w >= 4) {
+      const extra = r();
+      if (extra < 0.18) {
+        const vx = free.x + free.w - 2;
+        B.f(vx, top.top - 2, 1, 2, 'dark', 'flat');
+        B.vents.push({ x: vx, y: top.top - 3, ph: r() * 10 });
+        free = { x: free.x, w: free.w - 3 };
+      } else if (extra < 0.28 && h > 30) {
+        const fx = free.x + free.w - 1;
+        B.f(fx, top.top - 7, 1, 7, 'steel', 'flat');
+        B.flags.push({ x: fx + 1, y: top.top - 7, kind: r.pick(['us', 'us', 'ny', 'pride', 'red']), ph: r() * 10 });
+        free = { x: free.x, w: free.w - 2 };
+      } else if (extra < 0.38 && row === 'front') {
+        for (let i = 0; i < Math.min(free.w, 6); i += 2) { B.f(free.x + i, top.top - 1, 2, 1, 'tree', 'front'); if (r() < 0.5) B.f(free.x + i, top.top - 2, 1, 1, 'grass', 'rim'); }
+      } else if (extra < 0.55) {
+        B.box(free.x + free.w - 3, top.top - 2, 3, 2, 'conc2', { side: 1, noEdge: true });
+        free = { x: free.x, w: free.w - 4 };
+      }
     }
     if (tall && r() < 0.3) {
       const gc = r.pick(['#ffffff', '#ffd27a', '#8fd0ff', '#ff8fb8', '#b5ff9a']);
@@ -389,7 +430,7 @@
         distant(B, x, w, Math.max(10, Math.round(env * r.range(0.45, 1.05))), false);
         x += w + r.int(-3, 1);
       }
-      layers.push({ name: 'mid', par: 0.5, W, haze: 0.36, B });
+      layers.push({ name: 'mid', par: 0.5, W, haze: 0.36, B, groundGlow: 24 });
     }
 
     // Main layer
@@ -401,7 +442,8 @@
     const lmSpans = [[480, 510], [620, 660], [1290, 1330], [1390, 1440], [1545, 1580], [1640, 1665], [1710, 1730], [1760, 1790], [1810, 1830], [2100, 2150]];
     const nearLm = (x) => lmSpans.some(([a, b]) => x > a - 6 && x < b + 6);
 
-    // back row
+    // back row (slightly hazier than the front: depth)
+    B.hz = 0.14;
     for (let x = 0; x < WM;) {
       const w = r.int(8, 22);
       let h = env(x + w / 2) * r.range(0.5, 1.02);
@@ -412,6 +454,7 @@
       x += w + r.int(0, 2);
     }
     // landmarks
+    B.hz = 0.05;
     const lm = {};
     lm.owtc = oneWTC(B, 495);
     woolworth(B, 640);
@@ -425,6 +468,7 @@
     steinway(B, 1820);
     hudsonYards(B, 2115);
     // front row
+    B.hz = 0;
     for (let x = 0; x < WM;) {
       const w = r.int(6, 16);
       if (x + w > harbor[0] - 4 && x < harbor[1] + 4) { x = harbor[1] + 4; continue; }
@@ -460,7 +504,7 @@
     }
     B.roofs = B.roofs.filter((rf) => !rf.occluded);
 
-    layers.push({ name: 'main', par: 1, W: WM, haze: 0, B });
+    layers.push({ name: 'main', par: 1, W: WM, haze: 0, B, groundGlow: 34 });
 
     return {
       name: 'New York',

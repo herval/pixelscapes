@@ -411,32 +411,334 @@
   }
 
   function spider(S) {
+    // Web-swinger: webs only ever attach to real rooftop corners; leaps ballistically between swings.
     const rects = S.main.B.rects;
+    const WM = S.WM;
     const ev = { z: 'main', space: 'main', t: 0 };
-    let ax, ay, L, th = 0, T = 1.3, x, y;
-    const anchorNear = (wx, maxY) => {
-      let best = null;
+    let x = S.om - 12, y = S.groundY - R.range(45, 70);
+    let vx = 34, vy = -18, state = 'fly', flyT = 0;
+    let ax = 0, ay = 0, L = 0, th0 = 0, th = 0, st = 0;
+    const T = 1.25;
+    const findAnchor = () => {
+      let best = null, bestScore = 1e9;
+      const xm = ((x % WM) + WM) % WM;
       for (const q of rects) {
-        if (q.x <= wx && q.x + q.w >= wx) { const top = q.y + S.groundY; if (!best || top < best) best = top; }
+        const top = q.y + S.groundY;
+        if (top > y - 12 || top < 6) continue;
+        let d = q.x - xm;
+        d = ((d % WM) + WM) % WM; if (d > WM / 2) d -= WM;
+        const x0 = x + d, x1 = x0 + q.w - 1;
+        const px = clamp(x + 24, x0, x1);
+        const dist = px - x;
+        if (dist < 12 || dist > 42) continue;
+        const score = Math.abs(dist - 24) + Math.max(0, (y - top) - 55) * 0.8;
+        if (score < bestScore) { bestScore = score; best = [px, top + 1]; }
       }
-      return best == null ? maxY - 30 : Math.min(best + 2, maxY - 18);
+      return best;
     };
-    // world coordinates (unwrapped, relative to spawn)
-    x = S.om - 10; y = S.groundY - 60;
-    const newAnchor = () => { ax = x + R.range(16, 26); ay = anchorNear(((ax % S.WM) + S.WM) % S.WM, y); ay = Math.max(8, ay); L = Math.hypot(ax - x, y - ay); th = Math.atan2(x - ax, y - ay); ev.th0 = th; ev.st = 0; };
-    newAnchor();
+    const attach = (a) => {
+      [ax, ay] = a;
+      L = Math.hypot(ax - x, y - ay);
+      th0 = Math.atan2(x - ax, y - ay);
+      th = th0; st = 0; state = 'swing';
+    };
     ev.update = (dt) => {
-      ev.t += dt; ev.st += dt;
-      const k = Math.min(1, ev.st / T);
-      th = ev.th0 + (-ev.th0 * 2) * (0.5 - 0.5 * Math.cos(Math.PI * k));
-      x = ax + Math.sin(th) * L; y = ay + Math.cos(th) * L;
-      if (k >= 1) newAnchor();
-      return S.mx(x) - S.om < S.VW + 30 && ev.t < 30;
+      ev.t += dt;
+      if (state === 'fly') {
+        flyT += dt;
+        x += vx * dt; y += vy * dt; vy += 55 * dt;
+        if (flyT > 0.2) { const a = findAnchor(); if (a) attach(a); }
+        if (y > S.groundY - 8) return false;
+      } else {
+        st += dt;
+        const k = Math.min(1, st / T);
+        th = th0 - 2 * th0 * (0.5 - 0.5 * Math.cos(Math.PI * k));
+        x = ax + Math.sin(th) * L; y = ay + Math.cos(th) * L;
+        if (k >= 0.92) { state = 'fly'; flyT = 0; vx = 30 + R.range(0, 10); vy = -R.range(18, 30); }
+      }
+      return S.mx(x) - S.om < S.VW + 30 && ev.t < 40;
     };
     ev.draw = (p) => {
       const d = S.mx(x) - x;
-      p.line(x + d + 1, y, ax + d, ay, '#f0f0f0');
-      p.sprite(SPIDEY[Math.abs(th) < 0.3 ? 1 : 0], x + d, y, { r: '#e0303a', b: '#2a48c8' });
+      if (state === 'swing') p.line(x + d + 1, y, ax + d, ay, '#f0f0f0');
+      const pose = state === 'fly' ? SPIDEY[1] : SPIDEY[0];
+      p.sprite(pose, x + d, y, { r: '#e0303a', b: '#2a48c8' });
+    };
+    return ev;
+  }
+
+  function balloonRelease(S) {
+    const rf = rooftop(S, { minW: 6, sky: true });
+    if (!rf) return null;
+    const wx = S.mx(rf.x) + 2;
+    const n = R() < 0.3 ? R.int(3, 6) : 1;
+    const cols = ['#ff4a5a', '#ffd23a', '#4aa0ff', '#ff7ad0', '#6aff9a', '#ffffff', '#b07aff'];
+    const balloons = Array.from({ length: n }, (_, i) => ({ c: R.pick(cols), dx: i - (n >> 1), sw: R.range(0.8, 1.6), ph: R() * 6, vy: R.range(7, 11) }));
+    const ev = { z: 'main', space: 'main', t: 0, done: () => S.release(rf) };
+    const KID = ['.k.', 'kkk', '.k.', 'k.k'];
+    ev.update = (dt) => { ev.t += dt; return ev.t < 30 && !scrolledAway(S, wx); };
+    ev.draw = (p) => {
+      const x = S.mx(wx), base = S.groundY + rf.y;
+      const t = ev.t;
+      const released = t > 3;
+      p.sprite(t > 3 && t < 6 ? ['k.k', 'kkk', '.k.', 'k.k'] : KID, x, base - 4, { k: S.sil });
+      if (t > 3.2 && t < 5.5) p.text('!', x, base - 11, '#ffffff');
+      for (const b of balloons) {
+        const rise = released ? (t - 3) * b.vy : 0;
+        const bx = x + 1 + b.dx * 2 + (released ? Math.sin(t * b.sw + b.ph) * 2 + (t - 3) * 1.5 : 0);
+        const by = base - 12 - rise + (released ? 0 : Math.sin(t * 2 + b.ph) * 0.5);
+        if (by < -10) continue;
+        p.sprite(['.bb.', 'bbbb', 'bbbb', '.bb.', '..s.'], bx - 1, by, { b: b.c, s: '#dddddd' });
+        p.px(bx, by + 1, 'rgba(255,255,255,0.6)');
+        if (!released) p.line(bx + 1, by + 5, x + 1, base - 3, 'rgba(230,230,230,0.7)');
+        else p.rect(bx + 1 + Math.round(Math.sin(t * 3 + b.ph)), by + 5, 1, 3, 'rgba(230,230,230,0.6)');
+      }
+    };
+    return ev;
+  }
+
+  function lanterns(S) {
+    const rf = rooftop(S, { minW: 6 });
+    if (!rf) return null;
+    const wx = S.mx(rf.x) + rf.w / 2;
+    const n = R.int(8, 16);
+    const ls = Array.from({ length: n }, (_, i) => ({ delay: i * R.range(0.6, 1.4), vy: R.range(4, 7), dx: R.range(-3, 3), sw: R.range(0.4, 0.9), ph: R() * 6 }));
+    const ev = { z: 'main', space: 'main', t: 0, done: () => S.release(rf) };
+    ev.update = (dt) => { ev.t += dt; return ev.t < 60 && !scrolledAway(S, wx + 40); };
+    ev.draw = (p) => {
+      const x0 = S.mx(wx), base = S.groundY + rf.y;
+      for (const l of ls) {
+        const tt = ev.t - l.delay;
+        if (tt < 0) continue;
+        const lx = x0 + l.dx + Math.sin(tt * l.sw + l.ph) * 3 + tt * 1.2, ly = base - 4 - tt * l.vy;
+        if (ly < -6) continue;
+        const fl = 0.8 + 0.2 * Math.sin(ev.t * 9 + l.ph);
+        p.ctx.globalAlpha = 0.2 * fl;
+        p.sprite(['..gg..', '.gggg.', 'gggggg', 'gggggg', '.gggg.', '..gg..'], lx - 1, ly - 1, { g: '#ffb050' });
+        p.ctx.globalAlpha = 1;
+        p.sprite(['.aa.', 'aabb', 'aabb', '.cc.'], lx, ly, { a: '#ffcf70', b: '#ffae48', c: '#ff7a30' });
+      }
+    };
+    return ev;
+  }
+
+  function hotAirBalloons(S) {
+    const n = R.int(2, 4);
+    const cols = [['#ff5a5a', '#ffd35a'], ['#5ab4ff', '#ffffff'], ['#9bff6e', '#ff7ad0'], ['#ff9a3a', '#6a4ad8'], ['#ffffff', '#ff4a8a'], ['#3ad8c8', '#ffe08a']];
+    const bs = Array.from({ length: n }, (_, i) => ({ x: ((i + R.range(0.1, 0.7)) / n) * S.VW * 0.85, y: R.range(0.15, 0.5) * S.horizon, c: R.pick(cols), k: R() < 0.4 ? 2 : 1, vx: R.range(1, 3), vy: R.range(0.8, 2), ph: R() * 6 }));
+    const ev = { z: 'back', space: 'screen', t: 0 };
+    const BAL = [
+      '...aabbaa...',
+      '.aabbaabbaa.',
+      'aabbaabbaabb',
+      'aabbaabbaabb',
+      'aabbaabbaabb',
+      '.aabbaabbaa.',
+      '..abbaabba..',
+      '...baabba...',
+      '....k..k....',
+      '....k..k....',
+      '....wwww....',
+      '....wwww....',
+    ];
+    // shade the right-hand side of the envelope
+    const SH = BAL.map((row) => {
+      const idx = [];
+      for (let i = 0; i < row.length; i++) if (row[i] === 'a' || row[i] === 'b') idx.push(i);
+      const arr = row.split('');
+      for (const i of idx.slice(-3)) arr[i] = arr[i].toUpperCase();
+      if (idx.length) arr[idx[0]] = arr[idx[0]] === 'a' ? 'h' : arr[idx[0]];
+      return arr.join('');
+    });
+    bs.sort((a, b) => a.k - b.k);
+    ev.update = (dt) => {
+      ev.t += dt;
+      for (const b of bs) { b.x += b.vx * dt; b.y -= b.vy * dt; }
+      return ev.t < 80 && bs.some((b) => b.y > -30 && b.x < S.VW + 10);
+    };
+    ev.draw = (p) => {
+      const lit = S.P.day > 0.3;
+      for (const b of bs) {
+        const y = b.y + Math.sin(ev.t * 0.8 + b.ph) * 1;
+        const light = lit ? [1, 1, 1] : [0.4, 0.4, 0.55];
+        const c0 = PS.mul(hex(b.c[0]), light), c1 = PS.mul(hex(b.c[1]), light);
+        const map = {
+          a: css(c0), b: css(c1), A: css(PS.mul(c0, [0.7, 0.66, 0.8])), B: css(PS.mul(c1, [0.7, 0.66, 0.8])),
+          h: css(PS.mix(c0, [255, 255, 255], 0.35)), k: S.sil, w: '#8a5a3a',
+        };
+        scaled(p, SH, b.x, y, map, b.k);
+        if (Math.floor(ev.t * 1.5 + b.ph) % 4 === 0) p.rect(b.x + 5 * b.k, y + 9 * b.k, 2 * b.k, b.k, '#ffb040');
+      }
+    };
+    return ev;
+  }
+
+  function windowWasher(S) {
+    const cands = S.main.B.rects.filter((q) => {
+      const X = S.mx(q.x) - S.om;
+      return q.h > 70 && q.w >= 9 && X > 20 && X < S.VW - 30;
+    });
+    if (!cands.length) return null;
+    const q = R.pick(cands);
+    const ev = { z: 'main', space: 'main', t: 0 };
+    const wx = S.mx(q.x);
+    const gx = Math.floor(q.w / 2) - 3;
+    ev.update = (dt) => { ev.t += dt; return ev.t < 50 && !scrolledAway(S, wx + q.w); };
+    ev.draw = (p) => {
+      const x = S.mx(wx) + gx, top = S.groundY + q.y;
+      const drop = 4 + Math.min(q.h * 0.6, ev.t * 1.4);
+      p.rect(x, top, 1, drop, 'rgba(40,40,50,0.8)');
+      p.rect(x + 6, top, 1, drop, 'rgba(40,40,50,0.8)');
+      const gy = top + drop;
+      p.rect(x, gy, 7, 1, '#d8d8e0'); p.rect(x, gy + 1, 7, 1, '#707080');
+      const scrub = Math.floor(ev.t * 4) % 2;
+      p.sprite(['k.', 'kk', 'kk'], x + 1, gy - 3, { k: '#2a2a40' }, scrub);
+      p.sprite(['.k', 'kk', 'kk'], x + 4, gy - 3, { k: '#2a2a40' }, !scrub);
+      p.px(x + (scrub ? 0 : 3), gy - 3, '#ffd23a');
+      if (Math.floor(ev.t * 3) % 3 === 0) p.px(x + 2 + R.int(0, 3), gy - 4 - R.int(0, 2), 'rgba(255,255,255,0.8)');
+    };
+    return ev;
+  }
+
+  function drone(S) {
+    const rf = rooftop(S, { minW: 6, sky: true });
+    if (!rf) return null;
+    const tx = S.mx(rf.x) + rf.w / 2 - 2, ty = S.groundY + rf.y - 3;
+    const ev = { z: 'main', space: 'main', t: 0, done: () => S.release(rf) };
+    ev.update = (dt) => { ev.t += dt; return ev.t < 16 && !scrolledAway(S, tx); };
+    ev.draw = (p) => {
+      const t = ev.t;
+      let x, y;
+      if (t < 5) { const k = PS.smooth(0, 5, t); x = PS.lerp(tx + 90, tx, k); y = PS.lerp(ty - 60, ty - 10, k); }
+      else if (t < 8) { x = tx; y = ty - 10 + Math.sin(t * 3) * 0.5; }
+      else { const k = t - 8; x = tx - k * k * 4; y = ty - 10 - k * 8; }
+      const d = S.mx(tx) - tx;
+      const blink = Math.floor(t * 8) % 2;
+      p.sprite(['k...k', 'kkkkk', '.kkk.'], x + d, y, { k: '#2a2a33' });
+      p.px(x + d + (blink ? 0 : 4), y - 1, blink ? '#ff4040' : '#40ff80');
+      const boxY = t < 6.5 ? y + 3 : ty;
+      if (t < 12) p.rect(x + d + 1, boxY, 3, 2, '#c8a070');
+      if (t > 6.5 && t < 11) p.text('PIZZA!', x + d - 8, ty - 18, '#ffffff');
+    };
+    return ev;
+  }
+
+  function jetpack(S) {
+    const dir = R() < 0.5 ? 1 : -1;
+    const ev = { z: 'front', space: 'screen', x: dir > 0 ? -10 : S.VW + 10, y: R.range(30, S.horizon * 0.5), t: 0 };
+    ev.update = (dt) => { ev.t += dt; ev.x += dir * 30 * dt; ev.y += Math.sin(ev.t * 2.3) * 12 * dt; return ev.x > -20 && ev.x < S.VW + 20; };
+    ev.draw = (p) => {
+      p.sprite(['.k.', 'kkg', '.kg', 'k.k'], ev.x, ev.y, { k: '#20202c', g: '#8a8a9a' }, dir < 0);
+      const fl = Math.floor(ev.t * 15) % 2;
+      p.rect(ev.x + (dir > 0 ? 2 : 0), ev.y + 3, 1, 2 + fl, fl ? '#ffd23a' : '#ff7a2a');
+      for (let i = 1; i < 6; i++) p.px(ev.x + (dir > 0 ? 2 - i * 3 : i * 3), ev.y + 4 + Math.sin(ev.t * 5 + i), `rgba(220,220,230,${(0.5 - i * 0.08).toFixed(2)})`);
+    };
+    return ev;
+  }
+
+  function dragon(S) {
+    const dir = R() < 0.5 ? 1 : -1;
+    const ev = { z: 'front', space: 'screen', x: dir > 0 ? -30 : S.VW + 30, y: R.range(25, S.horizon * 0.4), t: 0, fire: [] };
+    const D = [
+      ['........gg..........', '.......gggg.........', '......gggggg........', '..g..gggggggg.....gg', '.gggggggggggggggggge', 'gg...gggggggggg.....', '......g.g..g.g......'],
+      ['....................', '....................', '..g..........gggg...', '.gggggggggggggggggge', 'gg...ggggggggggg....', '......gggggg........', '......g.g..g.g......'],
+    ];
+    ev.update = (dt) => {
+      ev.t += dt; ev.x += dir * 26 * dt; ev.y += Math.sin(ev.t * 1.5) * 5 * dt;
+      if (Math.floor(ev.t) % 4 === 2 && R() < dt * 25) ev.fire.push({ x: ev.x + (dir > 0 ? 20 : -1), y: ev.y + 4, vx: dir * R.range(30, 50), vy: R.range(-4, 6), a: 0 });
+      for (const f of ev.fire) { f.a += dt; f.x += f.vx * dt; f.y += f.vy * dt; }
+      ev.fire = ev.fire.filter((f) => f.a < 0.7);
+      return ev.x > -50 && ev.x < S.VW + 50;
+    };
+    ev.draw = (p) => {
+      const night = S.P.dark > 0.5;
+      p.sprite(D[Math.floor(ev.t * 3) % 2], ev.x, ev.y, { g: night ? '#1e3a2a' : '#2f7a4a', e: '#ffdb3a' }, dir < 0);
+      for (const f of ev.fire) p.rect(f.x, f.y, f.a < 0.3 ? 2 : 1, 1, f.a < 0.2 ? '#fff0a0' : f.a < 0.45 ? '#ffa030' : '#ff4a20');
+    };
+    return ev;
+  }
+
+  function meteorShower(S) {
+    const ev = { z: 'sky', space: 'screen', t: 0, stars: [] };
+    const dir = R() < 0.5 ? 1 : -1;
+    ev.update = (dt) => {
+      ev.t += dt;
+      if (ev.t < 25 && R() < dt * 1.4) ev.stars.push({ x: R.range(0, S.VW), y: R.range(0, S.horizon * 0.4), t: 0, sp: R.range(70, 120) });
+      for (const st of ev.stars) st.t += dt;
+      ev.stars = ev.stars.filter((st) => st.t < 0.8);
+      return ev.t < 26 || ev.stars.length;
+    };
+    ev.draw = (p) => {
+      for (const st of ev.stars) {
+        const k = st.t / 0.8, hx = st.x + dir * st.t * st.sp, hy = st.y + st.t * st.sp * 0.45;
+        for (let i = 0; i < 10; i++) p.px(Math.round(hx - dir * i * 2), Math.round(hy - i * 0.9), `rgba(255,255,240,${((1 - i / 10) * (1 - k)).toFixed(2)})`);
+      }
+    };
+    return ev;
+  }
+
+  function seagulls(S) {
+    const n = R.int(2, 5);
+    const gs = Array.from({ length: n }, () => ({ x: R.range(0, S.VW), y: S.horizon + R.range(-25, 8), dir: R() < 0.5 ? 1 : -1, ph: R() * 6, sp: R.range(8, 15), dive: R.range(3, 12) }));
+    const ev = { z: 'front', space: 'screen', t: 0 };
+    ev.update = (dt) => { ev.t += dt; for (const g of gs) g.x += g.dir * g.sp * dt; return ev.t < 30; };
+    ev.draw = (p) => {
+      for (const g of gs) {
+        let y = g.y + Math.sin(ev.t * 0.8 + g.ph) * 4;
+        const dv = ev.t - g.dive;
+        if (dv > 0 && dv < 1.5) y += Math.sin((dv / 1.5) * Math.PI) * 14;
+        const f = Math.floor(ev.t * 4 + g.ph) % 3;
+        p.sprite(f === 2 ? ['kwwwk'] : f === 1 ? ['.w.w.', 'k.w.k'] : ['k...k', '.w.w.', '..w..'], g.x, y, { w: '#f4f4f0', k: '#303038' });
+      }
+    };
+    return ev;
+  }
+
+  function rain(S) {
+    const ev = { z: 'top', space: 'screen', t: 0, drops: [], flash: 0, bolt: null, dur: R.range(45, 75) };
+    const N = Math.round(S.VW * 0.6);
+    for (let i = 0; i < N; i++) ev.drops.push({ x: R.range(0, S.VW), y: R.range(0, S.VH), v: R.range(200, 260) });
+    ev.update = (dt) => {
+      ev.t += dt;
+      for (const d of ev.drops) { d.y += d.v * dt; d.x -= d.v * 0.25 * dt; if (d.y > S.VH) { d.y = -4; d.x = R.range(0, S.VW + 40); } }
+      ev.flash = Math.max(0, ev.flash - dt * 3);
+      if (S.P.dark > 0.4 && ev.t > 8 && ev.t < ev.dur - 8 && R() < dt * 0.12) {
+        ev.flash = 1;
+        const bx = R.range(0.1, 0.9) * S.VW;
+        const pts = [[bx, 0]];
+        let y = 0, x = bx;
+        const end = S.horizon - R.range(40, 90);
+        while (y < end) { y += R.range(4, 10); x += R.range(-6, 6); pts.push([x, y]); }
+        ev.bolt = pts;
+      }
+      return ev.t < ev.dur;
+    };
+    ev.draw = (p) => {
+      const k = Math.min(1, ev.t / 6, (ev.dur - ev.t) / 6);
+      const g = p.ctx;
+      // overcast: heavy over the sky (hides stars and moon), lighter over the city and water
+      const hs = S.horizon * p.s, bands = 8;
+      for (let i = 0; i < bands; i++) {
+        const f = i / (bands - 1);
+        g.fillStyle = `rgba(38,42,64,${((0.74 - 0.5 * f) * k).toFixed(3)})`;
+        g.fillRect(0, Math.floor((hs * i) / bands), g.canvas.width, Math.ceil(hs / bands) + 1);
+      }
+      g.fillStyle = `rgba(30,36,58,${(0.24 * k).toFixed(3)})`;
+      g.fillRect(0, hs, g.canvas.width, g.canvas.height);
+      if (ev.flash > 0) {
+        g.fillStyle = `rgba(220,225,255,${(0.35 * ev.flash).toFixed(3)})`;
+        g.fillRect(0, 0, g.canvas.width, g.canvas.height);
+        if (ev.bolt && ev.flash > 0.5) for (let i = 1; i < ev.bolt.length; i++) p.line(ev.bolt[i - 1][0], ev.bolt[i - 1][1], ev.bolt[i][0], ev.bolt[i][1], '#f4f6ff');
+      }
+      const c = `rgba(185,200,235,${(0.3 * k).toFixed(3)})`;
+      g.fillStyle = c;
+      const n = Math.floor(ev.drops.length * k);
+      for (let i = 0; i < n; i++) { const d = ev.drops[i]; p.rect(Math.round(d.x), Math.round(d.y), 1, 4); p.rect(Math.round(d.x) - 1, Math.round(d.y) + 4, 1, 2); }
+      // splashes on the water
+      for (let i = 0; i < n / 6; i++) {
+        const hx = PS.hash(i, Math.floor(ev.t * 8)), hy = PS.hash(i * 7, Math.floor(ev.t * 8));
+        p.rect(Math.floor(hx * S.VW), S.horizon + 2 + Math.floor(hy * (S.VH - S.horizon - 3)), 2, 1, c);
+      }
     };
     return ev;
   }
@@ -727,24 +1029,6 @@
     return ev;
   }
 
-  function balloon(S) {
-    const x = R.range(0.1, 0.8) * S.VW;
-    const ev = { z: 'back', space: 'screen', t: 0, x, y: S.horizon * 0.4 };
-    const cols = R.pick([['#ff5a5a', '#ffd35a'], ['#5ab4ff', '#ffffff'], ['#9bff6e', '#ff7ad0'], ['#ff9a3a', '#6a4ad8']]);
-    ev.update = (dt) => { ev.t += dt; ev.y -= dt * 2.2; ev.x += dt * 2; return ev.y > -20; };
-    ev.draw = (p) => {
-      const rows = [3, 5, 7, 7, 7, 7, 5, 3];
-      for (let j = 0; j < rows.length; j++) {
-        const w = rows[j];
-        for (let i = 0; i < w; i++) p.px(ev.x + 3 - (w >> 1) + i, ev.y + j, cols[(i + (7 - w) / 2) % 2 ? 1 : 0]);
-      }
-      p.px(ev.x + 2, ev.y + 8, S.sil); p.px(ev.x + 4, ev.y + 8, S.sil);
-      p.rect(ev.x + 2, ev.y + 9, 3, 2, '#8a5a3a');
-      if (Math.floor(ev.t * 2) % 5 === 0) p.px(ev.x + 3, ev.y + 8, '#ffb040');
-    };
-    return ev;
-  }
-
   // ------------------------------------------------------------------------------------------
   // Water
 
@@ -872,7 +1156,16 @@
     { id: 'windowArt', w: 3, ok: night, make: windowArt },
     { id: 'witch', w: 1, ok: (S) => night(S) && S.moon.visible && (S.month === 9 || R() < 0.15), make: (S) => moonCrosser(S, 'witch') },
     { id: 'santa', w: 1, ok: (S) => night(S) && S.moon.visible && (S.month === 11 || R() < 0.15), make: (S) => moonCrosser(S, 'santa') },
-    { id: 'balloon', w: 2, ok: day, make: balloon },
+    { id: 'hotAirBalloons', w: 4, ok: (S) => S.P.day > 0.3, make: hotAirBalloons },
+    { id: 'balloonRelease', w: 5, ok: (S) => S.P.day > 0.2 || S.hour < 22, make: balloonRelease },
+    { id: 'lanterns', w: 4, ok: night, make: lanterns },
+    { id: 'windowWasher', w: 4, ok: day, make: windowWasher },
+    { id: 'drone', w: 4, make: drone },
+    { id: 'jetpack', w: 3, make: jetpack },
+    { id: 'dragon', w: 1, make: dragon },
+    { id: 'meteorShower', w: 2, ok: night, make: meteorShower },
+    { id: 'seagulls', w: 4, ok: (S) => S.P.day > 0.3, make: seagulls },
+    { id: 'rain', w: 1, make: rain },
     { id: 'ferry', w: 5, make: (S) => boat(S, 'ferry') },
     { id: 'tug', w: 4, make: (S) => boat(S, 'tug') },
     { id: 'sail', w: 3, ok: day, make: (S) => boat(S, 'sail') },

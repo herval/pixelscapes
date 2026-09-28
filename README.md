@@ -14,7 +14,14 @@ Everything is procedural (no image assets), so it's one static folder you can op
 
 ## Events
 
-Rooftop dancers, yoga, a cat patrol, kite flyers, a pigeon keeper with a flock, a golfer driving balls into the city, a rooftop party, a parkour runner, lovers, a guitarist and a BBQ. There's also a UFO abducting a cow, a flying superhero, a web-swinger, a giant ape on the Empire State with biplanes, planes, a helicopter with a searchlight, an LED blimp, a banner plane, birds, shooting stars, fireworks, a pizza signal, pictures spelled out in building windows, a Staten Island ferry, a tug, a sailboat, a party yacht, a giant rubber duck, Nessie and a kaiju. A witch shows up in October and Santa in December.
+Something new starts every few seconds, with ambient life (planes, birds, gulls, boats, shooting stars) in between.
+
+- **Rooftops:** dancers, yoga, a cat patrol, kite flyers, a pigeon keeper with a flock, a golfer driving balls into the city, a rooftop party, a parkour runner, lovers, a guitarist, a BBQ, a kid losing a balloon, sky lanterns, a window washer on a glass tower, and a pizza drone delivery.
+- **Sky:** a UFO abducting a cow, a flying superhero, a web-swinger (the web only attaches to real rooftop corners), a giant ape on the Empire State with biplanes, a jetpack guy, a dragon, hot-air balloons, planes with contrails, a helicopter searchlight, an LED blimp, a banner plane, birds, meteor showers, fireworks, a pizza signal, and pictures spelled out in building windows.
+- **Weather:** rainstorms with lightning at night.
+- **Water:** the Staten Island ferry, a tug, a sailboat, a party yacht, seagulls, a giant rubber duck, Nessie and a kaiju.
+- **Seasonal:** a witch in October and Santa in December.
+- **Always on:** a foreground promenade with walkers, joggers, cyclists, dog walkers (and the odd dachshund), people on benches, steam vents, waving flags, flickering neon, TV-lit windows and traffic.
 
 ## Use as a wallpaper
 
@@ -50,6 +57,7 @@ Rooftop dancers, yoga, a cat patrol, kite flyers, a pigeon keeper with a flock, 
 - `js/city.js`: building toolkit (`Builder`) and the lighting-aware layer renderer
 - `js/nyc.js`: New York (skyline envelope, landmarks, bridge, statue, shore)
 - `js/events.js`: all random events and their sprites
+- `js/promenade.js`: the foreground promenade and its passers-by
 - `js/main.js`: engine (layers, parallax, reflections, clouds, stars, scheduler, input)
 
 To add a city, write `PS.cities.<name>` in a file shaped like `nyc.js`, then load it with `?city=<name>`.

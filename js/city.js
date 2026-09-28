@@ -23,14 +23,17 @@
     constructor(W, rng) {
       this.W = W; this.rng = rng;
       this.ops = []; this.blinkers = []; this.roofs = []; this.rects = []; this.grids = []; this.lamps = [];
+      this.vents = []; this.flags = []; this.signs = [];
+      this.hz = 0; // extra atmospheric haze applied to ops pushed while set
     }
-    f(x, y, w, h, m, k, o) { if (w > 0 && h > 0) this.ops.push(Object.assign({ t: 'f', x, y, w, h, m, k: k || 'front' }, o)); }
-    glass(x, y, w, h, m, k) { if (w > 0 && h > 0) this.ops.push({ t: 'g', x, y, w, h, m, k: k || 'front' }); }
-    emit(x, y, w, h, m, c, k) { this.ops.push({ t: 'e', x, y, w, h, m, k: k || 'front', c: hex(c) }); }
+    push(o) { if (this.hz) o.hz = this.hz; this.ops.push(o); }
+    f(x, y, w, h, m, k, o) { if (w > 0 && h > 0) this.push(Object.assign({ t: 'f', x, y, w, h, m, k: k || 'front' }, o)); }
+    glass(x, y, w, h, m, k) { if (w > 0 && h > 0) this.push({ t: 'g', x, y, w, h, m, k: k || 'front' }); }
+    emit(x, y, w, h, m, c, k) { this.push({ t: 'e', x, y, w, h, m, k: k || 'front', c: hex(c) }); }
     win(x, y, w, h, m, o) {
       const r = this.rng;
       const lc = o && o.lc ? o.lc : (r() < 0.9 ? r.pick(PS.WARM) : r() < 0.8 ? r.pick(PS.COOL) : hex('#ffb3cf'));
-      this.ops.push({ t: 'w', x, y, w, h, m, th: o && o.th != null ? o.th : r(), lc, office: !!(o && o.office), side: !!(o && o.side) });
+      this.push({ t: 'w', x, y, w, h, m, th: o && o.th != null ? o.th : r(), lc, office: !!(o && o.office), side: !!(o && o.side) });
     }
     line(x0, y0, x1, y1, m, k, o) {
       const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
@@ -53,6 +56,7 @@
       if (o.glass) this.glass(x, top, fw, h, m, o.faceK || 'front'); else this.f(x, top, fw, h, m, o.faceK || 'front', o.glow ? { glow: hex(o.glow) } : null);
       if (sd) { if (o.glass) this.glass(x + fw, top, sd, h, m, 'sideR'); else this.f(x + fw, top, sd, h, m, 'sideR', o.glow ? { glow: hex(o.glow) } : null); }
       if (!o.noRim) this.f(x, top, w, 1, m, 'rim', o.glow ? { glow: hex(o.glow) } : null);
+      if (w >= 5 && !o.noEdge) this.f(x, top + 1, 1, h - 1, m, 'dark', { a: 0.2 });
       if (o.mullions) for (let cx = x + 2; cx < x + fw - 1; cx += o.mullions) this.f(cx, top + 1, 1, h - 1, m, 'dark', { a: 0.35 });
       if (o.bands) for (let yy = top + 3; yy < top + h - 1; yy += o.bands) this.f(x, yy, w, 1, m, 'dark', { a: 0.25 });
       if (o.win) this.grids.push(this.winGrid(x, top, fw, h, m, o.win, sd));
@@ -144,10 +148,12 @@
     const lights = {};
     const lf = (k) => lights[k] || (lights[k] = lightFor(k, P));
     const cache = new Map();
-    const finish = (c) => (haze > 0 ? mix(c, hazeCol, haze) : c);
+    const hzScale = 0.55 + 0.45 * P.day;
+    let opHz = 0;
+    const finish = (c) => { const h = haze + opHz * hzScale; return h > 0 ? mix(c, hazeCol, h) : c; };
     const shadeRGB = (m, k) => mul(MATS[m] || hex(m), lf(k));
     const col = (m, k) => {
-      const key = m + '|' + k;
+      const key = m + '|' + k + '|' + opHz;
       let c = cache.get(key);
       if (!c) { c = PS.css(finish(shadeRGB(m, k))); cache.set(key, c); }
       return c;
@@ -164,6 +170,7 @@
 
     for (const o of L.ops) {
       const y = o.y + groundY;
+      opHz = o.hz || 0;
       if (o.t === 'f') {
         if (o.glow && dark > 0.02) {
           const base = shadeRGB(o.m, o.k);
@@ -175,7 +182,7 @@
         draw(o.x, y, o.w, o.h);
       } else if (o.t === 'w') {
         const lit = o.th < (o.office ? off : res);
-        const key = 'w|' + o.m + (o.side ? 's' : '');
+        const key = 'w|' + o.m + (o.side ? 's' : '') + '|' + opHz;
         let offc = cache.get(key);
         if (!offc) {
           const base = mul(shadeRGB(o.m, o.side ? 'sideR' : 'front'), [0.55, 0.57, 0.64]);
@@ -204,6 +211,20 @@
         g.fillStyle = PS.css(finish(mix(shadeRGB(o.m, o.k), o.c, Math.min(1, dark * 1.1))));
         draw(o.x, y, o.w, o.h);
       }
+    }
+    // Ground-level atmosphere: warm street glow at night, soft haze by day (stepped bands).
+    if (L.groundGlow) {
+      const H = L.groundGlow;
+      g.save();
+      g.globalCompositeOperation = 'source-atop';
+      const warm = mix(hex('#ff9a50'), hex('#ffc890'), 0.3);
+      for (let r = 0; r < H; r += 2) {
+        const k = 1 - r / H, a = k * k;
+        const night = a * 0.26 * dark, day = a * 0.2 * (1 - dark);
+        if (night > 0.01) { g.fillStyle = PS.cssA(warm, night); g.fillRect(0, groundY - r - 2, W, 2); }
+        if (day > 0.01) { g.fillStyle = PS.cssA(mix(P.hor, P.mid, 0.3), day); g.fillRect(0, groundY - r - 2, W, 2); }
+      }
+      g.restore();
     }
   };
 })();
