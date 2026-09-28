@@ -9,11 +9,14 @@
     lime: '#dccfb8', cream: '#e9dcbc', brick: '#b0654c', brick2: '#8f4f40', brick3: '#c07a58', brown: '#7c5446',
     conc: '#b6b3ab', conc2: '#9c9ca4', steel: '#cfd6e0', white: '#eeebe4', stone: '#a89b89', granite: '#8a8078',
     glass: '#6f9cc4', glass2: '#4d6d90', glassG: '#6aa6a4', glassD: '#39465c', terra: '#c98b6b', wood: '#80573a',
-    copper: '#62a88f', gold: '#e7b54c', dark: '#3a3844', asphalt: '#3c3a44', grass: '#4f7a45', tree: '#3f6e3c',
+    copper: '#62a88f', gold: '#e7b54c', dark: '#3a3844', asphalt: '#3c3a44', grass: '#4f7a45', tree: '#3f6e3c', tree2: '#4f8a44', tree3: '#2f6434',
     red: '#b8433a', roof: '#6a6470', black: '#23222b',
   };
   const MATS = {};
   for (const k in PS.MATS) MATS[k] = hex(PS.MATS[k]);
+  // Seasonal materials (foliage) are swapped at runtime.
+  PS.setMat = (k, rgb) => { MATS[k] = typeof rgb === 'string' ? hex(rgb) : rgb; };
+  PS.GLOWS = {};
 
   PS.WARM = ['#ffd57e', '#ffe6a6', '#ffc76c', '#fff1c9', '#ffcf8f', '#ffdb94'].map(hex);
   PS.COOL = ['#c4e6ff', '#a3d2ff'].map(hex);
@@ -23,7 +26,7 @@
     constructor(W, rng) {
       this.W = W; this.rng = rng;
       this.ops = []; this.blinkers = []; this.roofs = []; this.rects = []; this.grids = []; this.lamps = [];
-      this.vents = []; this.flags = []; this.signs = [];
+      this.vents = []; this.flags = []; this.signs = []; this.lightStrings = [];
       this.hz = 0; // extra atmospheric haze applied to ops pushed while set
     }
     push(o) { if (this.hz) o.hz = this.hz; this.ops.push(o); }
@@ -53,9 +56,10 @@
       o = o || {};
       const sd = o.side != null ? o.side : w >= 16 ? 3 : w >= 9 ? 2 : w >= 4 ? 1 : 0;
       const fw = w - sd;
-      if (o.glass) this.glass(x, top, fw, h, m, o.faceK || 'front'); else this.f(x, top, fw, h, m, o.faceK || 'front', o.glow ? { glow: hex(o.glow) } : null);
-      if (sd) { if (o.glass) this.glass(x + fw, top, sd, h, m, 'sideR'); else this.f(x + fw, top, sd, h, m, 'sideR', o.glow ? { glow: hex(o.glow) } : null); }
-      if (!o.noRim) this.f(x, top, w, 1, m, 'rim', o.glow ? { glow: hex(o.glow) } : null);
+      const gl = o.glowKey ? { glowKey: o.glowKey } : o.glow ? { glow: hex(o.glow) } : null;
+      if (o.glass) this.glass(x, top, fw, h, m, o.faceK || 'front'); else this.f(x, top, fw, h, m, o.faceK || 'front', gl);
+      if (sd) { if (o.glass) this.glass(x + fw, top, sd, h, m, 'sideR'); else this.f(x + fw, top, sd, h, m, 'sideR', gl); }
+      if (!o.noRim) this.f(x, top, w, 1, m, 'rim', gl);
       if (w >= 5 && !o.noEdge) this.f(x, top + 1, 1, h - 1, m, 'dark', { a: 0.2 });
       if (o.mullions) for (let cx = x + 2; cx < x + fw - 1; cx += o.mullions) this.f(cx, top + 1, 1, h - 1, m, 'dark', { a: 0.35 });
       if (o.bands) for (let yy = top + 3; yy < top + h - 1; yy += o.bands) this.f(x, yy, w, 1, m, 'dark', { a: 0.25 });
@@ -144,11 +148,11 @@
     const g = L.ctx, W = L.W;
     g.clearRect(0, 0, L.canvas.width, L.canvas.height);
     const hazeCol = mix(P.hor, P.mid, 0.25);
-    const haze = L.haze * (0.55 + 0.45 * P.day);
+    const haze = Math.min(0.92, L.haze * (0.55 + 0.45 * P.day) + (P.fog || 0) * (L.fogK || 0));
     const lights = {};
     const lf = (k) => lights[k] || (lights[k] = lightFor(k, P));
     const cache = new Map();
-    const hzScale = 0.55 + 0.45 * P.day;
+    const hzScale = 0.55 + 0.45 * P.day + (P.fog || 0) * 1.5;
     let opHz = 0;
     const finish = (c) => { const h = haze + opHz * hzScale; return h > 0 ? mix(c, hazeCol, h) : c; };
     const shadeRGB = (m, k) => mul(MATS[m] || hex(m), lf(k));
@@ -172,9 +176,10 @@
       const y = o.y + groundY;
       opHz = o.hz || 0;
       if (o.t === 'f') {
-        if (o.glow && dark > 0.02) {
+        const glow = o.glowKey ? PS.GLOWS[o.glowKey] : o.glow;
+        if (glow && dark > 0.02) {
           const base = shadeRGB(o.m, o.k);
-          const lit = mul(MATS[o.m] || hex(o.m), PS.scale(o.glow, 1 / 255 * 1.1));
+          const lit = mul(MATS[o.m] || hex(o.m), PS.scale(glow, 1 / 255 * 1.1));
           g.fillStyle = PS.css(finish(mix(base, lit, dark * 0.9)));
         } else if (o.a != null) {
           g.fillStyle = PS.cssA(finish(shadeRGB(o.m, o.k)), o.a);
@@ -211,6 +216,25 @@
         g.fillStyle = PS.css(finish(mix(shadeRGB(o.m, o.k), o.c, Math.min(1, dark * 1.1))));
         draw(o.x, y, o.w, o.h);
       }
+    }
+    // Snow on every roof edge, cornice and treetop.
+    const snow = P.snowCover || 0;
+    if (snow > 0.05) {
+      const sc = (hzv) => { opHz = hzv; return PS.css(finish(mul([246, 248, 255], lf('rim')))); };
+      for (const o of L.ops) {
+        const isTree = o.m && o.m.startsWith('tree');
+        if (o.t !== 'f' || !(o.k === 'rim' || isTree)) continue;
+        if (o.h > 2 && !isTree) continue;
+        g.fillStyle = sc(o.hz || 0);
+        const y = o.y + groundY;
+        for (let i = 0; i < o.w; i++) {
+          const b = PS.bayer(o.x + i, o.y);
+          if (b > snow * 1.4) continue;
+          draw(o.x + i, y, 1, 1);
+          if (snow > 0.5 && !isTree && b < (snow - 0.5) * 1.6) draw(o.x + i, y - 1, 1, 1);
+        }
+      }
+      opHz = 0;
     }
     // Ground-level atmosphere: warm street glow at night, soft haze by day (stepped bands).
     if (L.groundGlow) {

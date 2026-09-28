@@ -3,6 +3,7 @@
 (function () {
   const PS = window.PS;
   PS.cities = PS.cities || {};
+  const { hex } = PS;
 
   const WM = 2400;
 
@@ -114,7 +115,7 @@
         B.flags.push({ x: fx + 1, y: top.top - 7, kind: r.pick(['us', 'us', 'ny', 'pride', 'red']), ph: r() * 10 });
         free = { x: free.x, w: free.w - 2 };
       } else if (extra < 0.38 && row === 'front') {
-        for (let i = 0; i < Math.min(free.w, 6); i += 2) { B.f(free.x + i, top.top - 1, 2, 1, 'tree', 'front'); if (r() < 0.5) B.f(free.x + i, top.top - 2, 1, 1, 'grass', 'rim'); }
+        for (let i = 0; i < Math.min(free.w, 6); i += 2) { B.f(free.x + i, top.top - 1, 2, 1, r.pick(['tree', 'tree2', 'tree3']), 'front'); if (r() < 0.5) B.f(free.x + i, top.top - 2, 1, 1, 'grass', 'rim'); }
       } else if (extra < 0.55) {
         B.box(free.x + free.w - 3, top.top - 2, 3, 2, 'conc2', { side: 1, noEdge: true });
         free = { x: free.x, w: free.w - 4 };
@@ -124,6 +125,7 @@
       const gc = r.pick(['#ffffff', '#ffd27a', '#8fd0ff', '#ff8fb8', '#b5ff9a']);
       B.emit(top.x, top.top, top.w, 1, mat, gc, 'rim');
     }
+    if (row === 'front') B.lightStrings.push({ x: top.x, w: top.w, y: top.top - 1, ph: r() * 10 });
     if (free && free.w >= 5) B.roofs.push({ x: free.x, w: free.w, y: top.top, row, ri: B.rects.length });
     return { x, w, h };
   }
@@ -170,17 +172,18 @@
     B.grids.push(grid);
     B.rects.push({ x: cx - 13, y: -100, w: 26, h: 68 });
     // crown tiers (floodlit at night)
-    B.box(cx - 10, -106, 20, 6, 'lime', { glow: sc[0], win: { ww: 1, wh: 1, px: 2, py: 2, my: 1, mb: 1 } });
-    B.box(cx - 7, -111, 14, 5, 'lime', { glow: sc[0] });
-    B.box(cx - 5, -115, 10, 4, 'lime', { glow: sc[1] });
+    PS.GLOWS.esb0 = hex(sc[0]); PS.GLOWS.esb1 = hex(sc[1]); PS.GLOWS.esb2 = hex(sc[2]);
+    B.box(cx - 10, -106, 20, 6, 'lime', { glowKey: 'esb0', win: { ww: 1, wh: 1, px: 2, py: 2, my: 1, mb: 1 } });
+    B.box(cx - 7, -111, 14, 5, 'lime', { glowKey: 'esb0' });
+    B.box(cx - 5, -115, 10, 4, 'lime', { glowKey: 'esb1' });
     for (let x = cx - 4; x < cx + 4; x += 2) B.emit(x, -114, 1, 2, 'lime', '#fff6d0');
-    B.box(cx - 3, -121, 6, 6, 'steel', { glow: sc[2], side: 1 });
-    B.box(cx - 2, -126, 4, 5, 'steel', { glow: sc[2], side: 1 });
-    B.box(cx - 1, -131, 2, 5, 'steel', { glow: sc[2], side: 0 });
+    B.box(cx - 3, -121, 6, 6, 'steel', { glowKey: 'esb2', side: 1 });
+    B.box(cx - 2, -126, 4, 5, 'steel', { glowKey: 'esb2', side: 1 });
+    B.box(cx - 1, -131, 2, 5, 'steel', { glowKey: 'esb2', side: 0 });
     B.f(cx, -150, 1, 19, 'dark', 'flat');
     B.blink(cx, -151, { period: 2.2 });
     B.roofs.push({ x: cx - 21, w: 5, y: -20, row: 'lm', ri: B.rects.length });
-    return { spireX: cx, spireTop: -150, mastTop: -131 };
+    return { spireX: cx, spireTop: -150, mastTop: -131, scheme: sc.map(hex) };
   }
 
   function chrysler(B, cx) {
@@ -418,7 +421,7 @@
         distant(B, x, w, Math.max(6, Math.round(env * r.range(0.4, 1))), true);
         x += w + r.int(-2, 1);
       }
-      layers.push({ name: 'far', par: 0.22, W, haze: 0.62, B });
+      layers.push({ name: 'far', par: 0.22, W, haze: 0.62, B, fogK: 0.36 });
     }
     // Mid layer
     {
@@ -430,7 +433,7 @@
         distant(B, x, w, Math.max(10, Math.round(env * r.range(0.45, 1.05))), false);
         x += w + r.int(-3, 1);
       }
-      layers.push({ name: 'mid', par: 0.5, W, haze: 0.36, B, groundGlow: 24 });
+      layers.push({ name: 'mid', par: 0.5, W, haze: 0.36, B, groundGlow: 24, fogK: 0.4 });
     }
 
     // Main layer
@@ -490,7 +493,8 @@
     }
     for (let x = 8; x < WM; x += r.int(10, 30)) {
       if (x > harbor[0] - 10 && x < harbor[1] + 10) continue;
-      B.f(x, -3, 3, 2, 'tree', 'front'); B.f(x + 1, -4, 2, 1, 'tree', 'rim'); B.f(x + 1, -1, 1, 1, 'dark', 'flat');
+      const tm = r.pick(['tree', 'tree2', 'tree3']);
+      B.f(x, -3, 3, 2, tm, 'front'); B.f(x + 1, -4, 2, 1, tm, 'rim'); B.f(x + 1, -1, 1, 1, 'dark', 'flat');
     }
     lm.liberty = statueOfLiberty(B, 190);
 
@@ -504,10 +508,11 @@
     }
     B.roofs = B.roofs.filter((rf) => !rf.occluded);
 
-    layers.push({ name: 'main', par: 1, W: WM, haze: 0, B, groundGlow: 34 });
+    layers.push({ name: 'main', par: 1, W: WM, haze: 0, B, groundGlow: 34, fogK: 0.12 });
 
     return {
       name: 'New York',
+      lat: 40.71, lon: -74.01,
       layers,
       landmarks: lm,
       lanes: [

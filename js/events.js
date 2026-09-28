@@ -1029,6 +1029,82 @@
     return ev;
   }
 
+  function paradeBalloon(S) {
+    // A giant parade inflatable drifting between the towers, handlers' ropes trailing down.
+    const kinds = [
+      { rows: ['...yyy...', '..yyyyk..', '..yyyyyoo', 'y.yyyyy..', 'yyyyyyyy.', 'yyyyyyyy.', '.yyyyyy..', '..o...o..'], map: { y: '#ffd21a', o: '#ff8a1a', k: '#222' } },
+      { rows: ['..bb.bb..', '.bbbbbbb.', '.bwkbkwb.', '.bbbbbbb.', '..bbrbb..', '.bbbbbbb.', 'bb.bbb.bb', '..b...b..'], map: { b: '#6a4ad8', w: '#ffffff', k: '#222', r: '#ff4a6a' } },
+      { rows: ['...rrr...', '..rrrrr..', '.rrwrwrr.', '.rrrrrrr.', 'gg.rrr.gg', '.ggrrrgg.', '...ggg...', '..g...g..'], map: { r: '#e8323c', g: '#3ab84a', w: '#ffffff' } },
+    ];
+    const k = R.pick(kinds);
+    const ev = { z: 'main', space: 'main', t: 0, x: S.om + S.VW + 10 };
+    const y0 = S.groundY - R.range(55, 75);
+    ev.update = (dt) => { ev.t += dt; ev.x -= 7 * dt; return S.mx(ev.x) - S.om > -40; };
+    ev.draw = (p) => {
+      const x = S.mx(ev.x), y = y0 + Math.sin(ev.t * 0.9) * 2;
+      for (let i = 0; i < 3; i++) p.line(x + 3 + i * 6, y + 22, x + 1 + i * 7 + Math.sin(ev.t + i) * 2, S.groundY, 'rgba(60,60,70,0.55)');
+      scaled(p, k.rows, x, y, k.map, 3);
+    };
+    return ev;
+  }
+
+  function bats(S) {
+    const n = R.int(6, 12);
+    const bs = Array.from({ length: n }, () => ({ x: R.range(-40, 0), y: R.range(20, S.horizon * 0.5), ph: R() * 6, sp: R.range(18, 28) }));
+    const ev = { z: 'front', space: 'screen', t: 0 };
+    ev.update = (dt) => { ev.t += dt; for (const b of bs) { b.x += b.sp * dt; b.y += Math.sin(ev.t * 4 + b.ph) * 12 * dt; } return bs.some((b) => b.x < S.VW + 10); };
+    ev.draw = (p) => { for (const b of bs) p.sprite(Math.floor(ev.t * 10 + b.ph) % 2 ? ['k.k.k', '.kkk.'] : ['.....', 'kkkkk', '.k.k.'], b.x, b.y, { k: '#101018' }); };
+    return ev;
+  }
+
+  function ghost(S) {
+    const rf = rooftop(S, { minW: 5 });
+    if (!rf) return null;
+    const wx = S.mx(rf.x) + 1;
+    const ev = { z: 'main', space: 'main', t: 0, done: () => S.release(rf) };
+    ev.update = (dt) => { ev.t += dt; return ev.t < 16 && !scrolledAway(S, wx); };
+    ev.draw = (p) => {
+      const t = ev.t, a = Math.min(1, t / 2, (16 - t) / 2) * 0.8;
+      const x = S.mx(wx) + Math.sin(t * 0.8) * 6, y = S.groundY + rf.y - 12 - t * 1.5 + Math.sin(t * 2) * 1.5;
+      p.ctx.globalAlpha = a;
+      p.sprite(['.www.', 'wwwww', 'wkwkw', 'wwwww', 'wwwww', 'w.w.w'], x, y, { w: '#eef2ff', k: '#20203a' });
+      p.ctx.globalAlpha = 1;
+      if (t > 5 && t < 8) p.text('BOO', x + 6, y - 6, '#ffffff');
+    };
+    return ev;
+  }
+
+  function snowballs(S) {
+    if (S.weather.snowCover < 0.4) return null;
+    const rf = rooftop(S, { minW: 12, sky: true });
+    if (!rf) return null;
+    const wx = S.mx(rf.x);
+    const ev = { z: 'main', space: 'main', t: 0, balls: [], next: 0.5, done: () => S.release(rf) };
+    ev.update = (dt) => {
+      ev.t += dt; ev.next -= dt;
+      if (ev.next <= 0 && ev.t < 18) {
+        ev.next = R.range(0.5, 1.4);
+        const fromLeft = R() < 0.5;
+        const dx = rf.w - 7;
+        ev.balls.push({ x: fromLeft ? 3 : rf.w - 4, y: -5, vx: (fromLeft ? 1 : -1) * dx / 0.8, vy: -14, a: 0, thrower: fromLeft ? 0 : 1 });
+      }
+      for (const b of ev.balls) { b.a += dt; b.x += b.vx * dt; b.y += b.vy * dt; b.vy += 35 * dt; }
+      ev.balls = ev.balls.filter((b) => b.a < 0.8);
+      return ev.t < 20 && !scrolledAway(S, wx);
+    };
+    ev.draw = (p) => {
+      const x = S.mx(wx), y = S.groundY + rf.y;
+      const throwing = (i) => ev.balls.some((b) => b.thrower === i && b.a < 0.2);
+      p.sprite(throwing(0) ? PERSON.wave1 : PERSON.stand, x + 1, y - 6, { k: S.sil });
+      p.sprite(throwing(1) ? PERSON.wave1 : PERSON.stand, x + rf.w - 6, y - 6, { k: S.sil }, true);
+      for (const b of ev.balls) p.px(x + b.x, y + b.y, '#ffffff');
+      // a small snowman between them
+      p.sprite(['.w.', 'www', '.w.', 'www', 'www'], x + Math.floor(rf.w / 2) - 1, y - 5, { w: '#f4f6ff' });
+      p.px(x + Math.floor(rf.w / 2) + 1, y - 4, '#ff8a1a');
+    };
+    return ev;
+  }
+
   // ------------------------------------------------------------------------------------------
   // Water
 
@@ -1166,6 +1242,10 @@
     { id: 'meteorShower', w: 2, ok: night, make: meteorShower },
     { id: 'seagulls', w: 4, ok: (S) => S.P.day > 0.3, make: seagulls },
     { id: 'rain', w: 1, make: rain },
+    { id: 'paradeBalloon', w: 0.3, ok: (S) => S.P.day > 0.5, make: paradeBalloon },
+    { id: 'bats', w: 0.5, ok: (S) => S.P.dark > 0.3 && S.season && S.season.name === 'autumn', make: bats },
+    { id: 'ghost', w: 0.3, ok: (S) => S.P.dark > 0.5, make: ghost },
+    { id: 'snowballs', w: 4, ok: (S) => S.weather.snowCover > 0.4 && S.P.day > 0.3, make: snowballs },
     { id: 'ferry', w: 5, make: (S) => boat(S, 'ferry') },
     { id: 'tug', w: 4, make: (S) => boat(S, 'tug') },
     { id: 'sail', w: 3, ok: day, make: (S) => boat(S, 'sail') },

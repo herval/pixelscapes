@@ -22,6 +22,9 @@
     lon: q.has('lon') ? num('lon', -74) : null,
     event: q.get('event'),
     cam: q.has('cam') ? num('cam', 0) : null,
+    weather: q.get('weather') || 'live',   // live | city | off | clear | cloudy | overcast | fog | drizzle | rain | storm | snow | blizzard | windy
+    date: q.get('date'),                   // YYYY-MM-DD, to preview seasons and holidays
+    units: q.get('units') || (/^en-US|^en-LR|^my/.test(navigator.language || '') ? 'f' : 'c'),
   };
 
   const canvas = document.getElementById('c');
@@ -41,6 +44,7 @@
           loc = { lat: pos.coords.latitude, lon: pos.coords.longitude };
           try { localStorage.setItem('pixelscapes.loc', JSON.stringify(loc)); } catch (e) { /* ignore */ }
           dirty = true;
+          refreshWeather();
         }, () => {}, { timeout: 15000, maximumAge: 6 * 3600e3 });
       } catch (e) { /* ignore */ }
     }
@@ -48,9 +52,11 @@
 
   const realStart = Date.now();
   let simStart = realStart;
-  if (cfg.time) {
-    const [h, m] = cfg.time.split(':').map(Number);
-    const d = new Date(); d.setHours(h || 0, m || 0, 0, 0); simStart = d.getTime();
+  if (cfg.time || cfg.date) {
+    const d = new Date();
+    if (cfg.date) { const [y, mo, da] = cfg.date.split('-').map(Number); if (y) d.setFullYear(y, (mo || 1) - 1, da || 1); }
+    if (cfg.time) { const [h, m] = cfg.time.split(':').map(Number); d.setHours(h || 0, m || 0, 0, 0); }
+    simStart = d.getTime();
   }
   let timeOffset = 0;
   const simNow = () => new Date(simStart + (Date.now() - realStart) * cfg.speed + timeOffset);
@@ -81,6 +87,13 @@
   const claimedGrid = new Set();
   let toast = null;
   let lastRain = -1e9;
+  let season = null, builtCover = -1, cloudOff = 0;
+  const weather = new PS.Weather({ preset: ['live', 'city', 'off'].includes(cfg.weather) ? null : cfg.weather, off: cfg.weather === 'off' });
+  function refreshWeather() {
+    const at = cfg.weather === 'city' ? { lat: city.lat, lon: city.lon } : loc;
+    if (at) weather.refresh(at.lat, at.lon).then(() => { dirty = true; });
+  }
+  setInterval(refreshWeather, 15 * 60e3);
 
   function layout() {
     const dpr = window.devicePixelRatio || 1;
@@ -114,13 +127,14 @@
   function makeClouds() {
     const dayKey = Math.floor(simNow().getTime() / 864e5);
     const r = PS.rng(dayKey * 7 + 3);
-    const cover = r();
-    const n = Math.round(2 + cover * 8 * (VW / 480));
+    const cover = weather.known ? weather.cur.cloud : r();
+    builtCover = cover;
+    const n = Math.round((1 + 6 * cover + 22 * cover ** 3) * (VW / 480));
     clouds = [];
     const span = VW + 300;
     for (let i = 0; i < n; i++) {
       const streak = r() < 0.25;
-      const w = streak ? r.int(40, 110) : r.int(22, 70);
+      const w = streak ? r.int(40, 110) : r.int(22, Math.round(70 + cover * 50));
       const h = streak ? r.int(5, 8) : Math.round(w * r.range(0.28, 0.42));
       const mask = new Uint8Array(w * h);
       const blobs = streak ? 5 : r.int(4, 8);
@@ -134,7 +148,7 @@
         }
       }
       const ys = streak ? r.range(horizon * 0.35, horizon * 0.7) : r.range(6, horizon * 0.5);
-      clouds.push({ w, h, mask, x: r() * span, y: Math.round(ys), drift: r.range(0.4, 1.4), par: streak ? 0.03 : 0.06, canvas: document.createElement('canvas') });
+      clouds.push({ w, h, mask, x: r() * span, y: Math.round(ys * (1 - cover * 0.35)), drift: r.range(0.6, 1.4), par: streak ? 0.03 : 0.06, canvas: document.createElement('canvas') });
     }
   }
 
@@ -178,9 +192,9 @@
       bands.push(tt < 0.55 ? mix(P.top, P.mid, tt / 0.55) : mix(P.mid, P.hor, (tt - 0.55) / 0.45));
     }
     const sun = sunInfo, moon = moonInfo;
-    const glowR = 36 + 90 * P.golden + 16 * P.day, glowS = 0.12 + 0.62 * P.golden;
+    const glowR = 36 + 90 * P.golden + 16 * P.day, glowS = P.sunHidden ? 0 : 0.12 + 0.62 * P.golden;
     const lp = 0.4 * P.stars; // city light pollution glow
-    const mGlow = moon && moon.visible ? 0.16 * P.stars * (0.3 + 0.7 * Math.sin(moon.phase * Math.PI)) : 0;
+    const mGlow = moon && moon.visible && !P.moonHidden ? 0.16 * P.stars * (0.3 + 0.7 * Math.sin(moon.phase * Math.PI)) : 0;
     for (let y = 0; y < h; y++) {
       const lvl = (y / (h - 1)) * N;
       const lo = Math.floor(lvl), f = lvl - lo;
@@ -210,7 +224,7 @@
       }
     }
     // sun disc
-    if (sun.alt > -3) {
+    if (sun.alt > -3 && !P.sunHidden) {
       const R0 = 6;
       const core = mix(P.sunDisc, [255, 255, 255], 0.5);
       for (let y = -R0; y <= R0; y++) for (let x = -R0; x <= R0; x++) {
@@ -224,7 +238,7 @@
       }
     }
     // moon with phase
-    if (moon && moon.visible) {
+    if (moon && moon.visible && !P.moonHidden) {
       const R0 = 5, ph = moon.phase;
       const k = Math.cos(ph * 2 * Math.PI);
       const litC = mix([244, 240, 220], P.hor, 0.15 * P.day), crater = mix([214, 208, 190], P.hor, 0.15 * P.day);
@@ -278,10 +292,17 @@
     const m = PS.moonPos(sun, phase, loc.lat);
     moonInfo = { alt: m.alt, x: sx(m.H), y: sy(m.alt), phase, visible: m.alt > 2 && phase > 0.04 && phase < 0.96 };
     P.sil = css(mix(hex('#07081a'), hex('#221e33'), P.day));
+    weather.applyToPalette(P);
+    season = PS.season(now, city.lat);
+    PS.setMat('tree', season.foliage[0]); PS.setMat('tree2', season.foliage[1]); PS.setMat('tree3', season.foliage[2]);
+    PS.setMat('grass', mix(hex('#4f7a45'), hex('#8a7a5a'), season.bare * 0.7));
+    const esb = season.esb ? season.esb.map(hex) : city.landmarks.esb && city.landmarks.esb.scheme;
+    if (esb) { PS.GLOWS.esb0 = esb[0]; PS.GLOWS.esb1 = esb[1]; PS.GLOWS.esb2 = esb[2]; }
   }
 
   function renderAll(now) {
     updateSun(now);
+    if (weather.known && Math.abs(weather.cur.cloud - builtCover) > 0.12) makeClouds();
     renderSky();
     for (const L of city.layers) PS.renderLayer(L, P, groundY, hour);
     renderClouds();
@@ -324,7 +345,8 @@
     get t() { return t; }, get P() { return P; }, get VW() { return VW; }, get VH() { return VH; },
     get horizon() { return horizon; }, get groundY() { return groundY; }, get om() { return S._om; }, WM,
     main, city, lm: city.landmarks, get hour() { return hour; }, get month() { return simNow().getMonth(); },
-    get sil() { return P.sil; }, get moon() { return moonInfo; }, claimedGrid,
+    get sil() { return P.sil; }, get moon() { return moonInfo.visible && !P.moonHidden ? moonInfo : { visible: false }; }, claimedGrid,
+    weather: weather.cur, get season() { return season; },
     mx: (wx) => layerMx(main, S._om, wx),
     claim: (rf) => claimed.add(rf), release: (rf) => claimed.delete(rf),
     pickRoof(o) {
@@ -346,16 +368,37 @@
     spawn: (id) => spawn(id),
   };
 
+  // Events that need decent weather / a clear sky, and holiday boosts.
+  const OUTDOOR = new Set(['yoga', 'kite', 'pigeons', 'bbq', 'party', 'golfer', 'lanterns', 'hotAirBalloons', 'balloonRelease', 'windowWasher', 'bannerPlane', 'sail', 'fireworks', 'couple', 'guitar', 'selfie', 'stargazer', 'dancer', 'jumper', 'paradeBalloon']);
+  const CLEARSKY = new Set(['stargazer', 'meteorShower', 'shootingStar', 'witch', 'santa']);
+  function weatherOk(id) {
+    const w = weather.cur;
+    if (OUTDOOR.has(id) && (w.rain > 0.2 || w.snow > 0.5 || w.wind > 0.8)) return false;
+    if (CLEARSKY.has(id) && w.cloud > 0.6) return false;
+    if (id === 'rain' && weather.known) return false; // real weather owns precipitation
+    return true;
+  }
+  function weightOf(e) {
+    const h = season ? season.holidays : {};
+    let w = e.w;
+    if (h.thanksgiving && e.id === 'paradeBalloon') w *= 8;
+    if (h.halloween && (e.id === 'bats' || e.id === 'ghost' || e.id === 'witch')) w *= 5;
+    if ((h.july4 || h.nye) && e.id === 'fireworks') w *= 6;
+    if (h.valentine && (e.id === 'couple' || e.id === 'windowArt')) w *= 4;
+    if (h.xmas && e.id === 'santa') w *= 3;
+    if (weather.cur.snow > 0.2 && e.id === 'snowballs') w *= 3;
+    return w;
+  }
   function spawn(id) {
-    const cands = id ? PS.EVENTS.filter((e) => e.id === id) : PS.EVENTS.filter((e) => !e.ok || e.ok(S));
+    const cands = id ? PS.EVENTS.filter((e) => e.id === id) : PS.EVENTS.filter((e) => (!e.ok || e.ok(S)) && weatherOk(e.id) && weightOf(e) > 0);
     if (!cands.length) return null;
     for (let attempt = 0; attempt < 6; attempt++) {
       let def;
       if (id) def = cands[0];
       else {
-        const tot = cands.reduce((a, e) => a + e.w, 0);
+        const tot = cands.reduce((a, e) => a + weightOf(e), 0);
         let r = R() * tot;
-        def = cands.find((e) => (r -= e.w) <= 0) || cands[0];
+        def = cands.find((e) => (r -= weightOf(e)) <= 0) || cands[0];
       }
       if (!id && events.some((e) => e.id === def.id) && def.id !== 'plane' && def.id !== 'birds') continue;
       if (!id && def.id === 'rain' && t - lastRain < 600) continue;
@@ -396,7 +439,7 @@
   function drawClouds() {
     const span = VW + 300;
     for (const c of clouds) {
-      let x = (c.x - t * c.drift - cam * c.par) % span;
+      let x = (c.x - cloudOff * c.drift - cam * c.par) % span;
       if (x < 0) x += span;
       x -= 150;
       if (x > VW || x + c.w < 0) continue;
@@ -439,7 +482,7 @@
         const age = (t * 0.35 + i / 6 + v.ph) % 1;
         const a = (1 - age) * (0.5 + 0.2 * P.dark);
         const sz = age < 0.3 ? 1 : age < 0.7 ? 2 : 3;
-        pM.rect(Math.round(X + age * 7 + Math.sin(age * 6 + v.ph) * 1.2), Math.round(groundY + v.y - age * 13), sz, sz > 1 ? sz - 1 : 1, PS.cssA(steam, a));
+        pM.rect(Math.round(X + age * (7 + weather.cur.wind * weather.cur.windDir * 10) + Math.sin(age * 6 + v.ph) * 1.2), Math.round(groundY + v.y - age * 13), sz, sz > 1 ? sz - 1 : 1, PS.cssA(steam, a));
       }
     }
     // flags
@@ -449,10 +492,25 @@
       const [stripes, canton] = FLAGS[f.kind];
       const lit = PS.add(P.amb, PS.scale(P.sun, 0.5));
       for (let i = 0; i < 5; i++) {
-        const wy = Math.round(Math.sin(t * 5 - i * 0.9 + f.ph) * (i / 4));
+        const wy = Math.round(Math.sin(t * (3 + weather.cur.wind * 8) - i * 0.9 + f.ph) * (i / 4) * (0.5 + weather.cur.wind));
         for (let j = 0; j < 3; j++) {
           const c = canton && i < 2 && j < 2 ? canton : stripes[j];
           pM.rect(X + i, groundY + f.y + j + wy, 1, 1, css(PS.mul(hex(c), lit)));
+        }
+      }
+    }
+    // holiday string lights along rooftops
+    const hol = season ? season.holidays : {};
+    const strCols = hol.xmas ? ['#ff3a3a', '#3aff6a', '#ffd23a', '#4ab0ff'] : hol.halloween ? ['#ff8a1a', '#b060ff'] : hol.july4 ? ['#ff4a4a', '#ffffff', '#4a7cff'] : hol.pride ? ['#ff4a4a', '#ff9a2a', '#ffe04a', '#4aff7a', '#4ab0ff', '#b060ff'] : null;
+    if (strCols && P.dark > 0.25) {
+      for (const L of B.lightStrings) {
+        if (PS.hash(L.x, 7) > (hol.xmas ? 0.6 : 0.3)) continue;
+        const X = S.mx(L.x);
+        if (X - om < -L.w || X - om > VW + 2) continue;
+        for (let i = 0; i < L.w; i += 2) {
+          const k = (i / 2 + Math.floor(t * 1.5 + L.ph)) % strCols.length;
+          if (PS.hash(i + L.x, Math.floor(t * 2 + L.ph)) < 0.15) continue;
+          pM.rect(X + i, groundY + L.y, 1, 1, strCols[k]);
         }
       }
     }
@@ -515,7 +573,7 @@
       pM.rect(X, horizon + dsh.r, dsh.w, 1);
     }
     // sun / moon glitter path
-    const src = sunInfo.alt > -2 ? { x: sunInfo.x, c: mix(P.sunDisc, [255, 255, 255], 0.4), a: 0.5 + 0.4 * P.golden } :
+    const src = P.sunHidden ? null : sunInfo.alt > -2 ? { x: sunInfo.x, c: mix(P.sunDisc, [255, 255, 255], 0.4), a: 0.5 + 0.4 * P.golden } :
       moonInfo.visible && P.stars > 0.3 ? { x: moonInfo.x, c: [230, 232, 255], a: 0.45 * P.stars } : null;
     if (src) {
       const tick = Math.floor(t * 5);
@@ -536,7 +594,8 @@
     const a = t < 1 ? t : t > 9 ? Math.max(0, (12 - t) / 3) : 1;
     const now = simNow();
     const hh = now.getHours(), mm = String(now.getMinutes()).padStart(2, '0');
-    const str = `${city.name}  ${(hh % 12) || 12}:${mm} ${hh < 12 ? 'AM' : 'PM'}`;
+    const wx = weather.label(cfg.units === 'f');
+    const str = `${city.name}  ${(hh % 12) || 12}:${mm} ${hh < 12 ? 'AM' : 'PM'}${wx ? '  ' + wx : ''}`;
     ctx.globalAlpha = a;
     pS.text(str, 7, 7, 'rgba(0,0,0,0.5)');
     pS.text(str, 6, 6, '#f4f0e6');
@@ -558,6 +617,8 @@
     const lines = [
       `${now.toTimeString().slice(0, 5)} ALT ${sunInfo.alt.toFixed(1)} MOON ${moonInfo.phase.toFixed(2)}`,
       `LAT ${loc.lat.toFixed(1)} LON ${loc.lon.toFixed(1)} FPS ${fps}`,
+      `WX ${weather.source} ${weather.label(false)} CLD ${weather.cur.cloud.toFixed(2)} RN ${weather.cur.rain.toFixed(2)} SN ${weather.cur.snow.toFixed(2)} FOG ${weather.cur.fog.toFixed(2)} COVER ${weather.cur.snowCover.toFixed(2)}`,
+      `SEASON ${season ? season.name.toUpperCase() : ''} ${season ? Object.keys(season.holidays).filter((k) => season.holidays[k]).join(' ').toUpperCase() : ''}`,
       `EV ${events.map((e) => e.id).join(' ')}`,
     ];
     lines.forEach((l, i) => { pS.rect(3, 3 + i * 7, PS.textWidth(l) + 4, 7, 'rgba(0,0,0,0.5)'); pS.text(l, 5, 4 + i * 7, '#9fffb0'); });
@@ -599,6 +660,13 @@
       nextAmbient = R.range(8, 18);
     }
     promenade.update(dt, S, cam * promenade.par);
+    weather.update(dt);
+    cloudOff += dt * (0.3 + weather.cur.wind * 3) * weather.cur.windDir;
+    if (season && P.dark > 0.6 && weather.cur.rain < 0.6) {
+      const h = season.holidays, hr = hour;
+      const show = (h.july4 && hr >= 21 && hr < 23.5) || (h.nye && (hr >= 23.9 || hr < 0.6));
+      if (show && !events.some((e) => e.id === 'fireworks')) spawn('fireworks');
+    }
     for (const ev of events) if (!ev.dead) { try { if (!ev.update(dt, S)) ev.dead = true; } catch (e) { ev.dead = true; console.error(ev.id, e); } }
     for (let i = events.length - 1; i >= 0; i--) if (events[i].dead) { events[i].done && events[i].done(); events.splice(i, 1); }
 
@@ -622,16 +690,18 @@
     drawReflection();
     drawWaterSparkle(mm.om);
     drawEvents('water');
+    weather.draw(pS, S, dt, 'fog');
     promenade.draw(pM, S, cam * promenade.par);
     pM.ox = -mm.base;
     drawEvents('top');
+    weather.draw(pS, S, dt, 'precip');
     drawLabel();
     drawToast();
     drawDebug(fpsShown);
   }
 
   // --- input --------------------------------------------------------------------------------
-  let cycle = 0;
+  let cycle = 0, wxCycle = 0;
   const help = document.getElementById('help');
   window.addEventListener('keydown', (e) => {
     const k = e.key.toLowerCase();
@@ -649,14 +719,22 @@
     else if (k === 'f') { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => {}); }
     else if (k === 'h' || k === '?') help.classList.toggle('show');
     else if (k === 'd') cfg.debug = !cfg.debug;
+    else if (k === 'w') {
+      const names = ['live', 'clear', 'cloudy', 'overcast', 'fog', 'drizzle', 'rain', 'storm', 'snow', 'blizzard', 'windy'];
+      wxCycle = (wxCycle + 1) % names.length;
+      weather.setPreset(names[wxCycle]);
+      if (names[wxCycle] === 'live') refreshWeather();
+      toast = { msg: 'WEATHER: ' + names[wxCycle].toUpperCase(), t: 2 };
+    }
     if (k === '[' || k === ']') { const n = simNow(); toast = { msg: `${String(n.getHours()).padStart(2, '0')}:${String(n.getMinutes()).padStart(2, '0')}`, t: 1.5 }; }
   });
   canvas.addEventListener('dblclick', () => spawn());
   window.addEventListener('resize', () => { layout(); });
 
   layout();
+  refreshWeather();
   renderAll(simNow());
   if (cfg.event) setTimeout(() => cfg.event.split(',').forEach((id) => spawn(id)), 300);
   requestAnimationFrame(frame);
-  window.pixelscapes = { spawn, S, cfg, setCam: (x) => { cam = x; }, render: () => { dirty = true; } };
+  window.pixelscapes = { get fps() { return fpsShown; }, spawn, S, cfg, setCam: (x) => { cam = x; }, render: () => { dirty = true; } };
 })();
