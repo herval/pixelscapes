@@ -138,6 +138,7 @@
       this.onTrack = this.opts.onTrack || (() => {});
       this.seed = this.opts.seed != null ? this.opts.seed : (Math.random() * 1e9) | 0;
       this.volume = this.opts.volume != null ? this.opts.volume : 0.6;
+      this.mute = this.opts.mute || {}; // analysis: { drums, crackle, rain }
       this.build();
       this.track = null;
       this.nextTime = ctx.currentTime + 0.1;
@@ -191,14 +192,18 @@
         hiss = hiss * 0.97 + (Math.random() * 2 - 1) * 0.03;
         cd[i] = hiss * 0.08;
       }
-      for (let k = 0; k < 6 * 9; k++) {
-        const at = Math.floor(Math.random() * (cd.length - 40)), amp = (Math.random() < 0.1 ? 0.5 : 0.18) * (Math.random() < 0.5 ? -1 : 1);
-        for (let j = 0; j < 30; j++) cd[at + j] += amp * Math.exp(-j / 4) * (j % 2 ? -0.6 : 1);
+      // sparse, rounded dust pops (raised-cosine bumps, not single-sample spikes)
+      for (let k = 0; k < 6 * 4; k++) {
+        const at = Math.floor(Math.random() * (cd.length - 80));
+        const amp = (Math.random() < 0.08 ? 0.12 : 0.04 + Math.random() * 0.04) * (Math.random() < 0.5 ? -1 : 1);
+        const w = 12 + Math.floor(Math.random() * 24);
+        for (let j = 0; j < w; j++) cd[at + j] += amp * 0.5 * (1 - Math.cos((2 * Math.PI * j) / w));
       }
       this.crackle = c.createBufferSource(); this.crackle.buffer = cr; this.crackle.loop = true;
-      const crf = c.createBiquadFilter(); crf.type = 'highpass'; crf.frequency.value = 900;
-      this.crackleGain = g(0.35);
-      this.crackle.connect(crf).connect(this.crackleGain).connect(this.sat);
+      const crf = c.createBiquadFilter(); crf.type = 'highpass'; crf.frequency.value = 700;
+      const crl = c.createBiquadFilter(); crl.type = 'lowpass'; crl.frequency.value = 4000;
+      this.crackleGain = g(this.mute.crackle ? 0 : 0.35);
+      this.crackle.connect(crf).connect(crl).connect(this.crackleGain).connect(this.sat);
       this.crackle.start();
       // rain ambience (pink-ish noise, band-limited)
       const rb = c.createBuffer(2, c.sampleRate * 5, c.sampleRate);
@@ -236,53 +241,71 @@
     setAmbience(mood) {
       const t = this.ctx.currentTime;
       this.rainGain.gain.setTargetAtTime(Math.min(0.4, (mood.rain || 0) * 0.45), t, 2);
-      this.crackleGain.gain.setTargetAtTime(0.25 + 0.2 * (mood.night || 0), t, 2);
+      if (!this.mute.crackle) this.crackleGain.gain.setTargetAtTime(0.2 + 0.1 * (mood.night || 0), t, 2);
     }
 
     next() { this.forceNext = true; }
 
     // ---- instruments ------------------------------------------------------------------------
 
-    env(gain, t, peak, attack, decayTo, decay, end, release) {
+    // Click-free ADSR. The attack is linear (an exponential ramp from ~0 is effectively an instant
+    // jump), the decay and release use setTargetAtTime so they always continue smoothly from the
+    // current level even when a note is shorter than its decay. Returns when the voice is silent.
+    env(gain, t, peak, attack, sustain, decay, end, release) {
       const p = gain.gain;
-      p.setValueAtTime(0.0001, t);
-      p.exponentialRampToValueAtTime(Math.max(0.0002, peak), t + attack);
-      p.exponentialRampToValueAtTime(Math.max(0.0002, decayTo), t + attack + decay);
-      p.setValueAtTime(Math.max(0.0002, decayTo), end);
-      p.exponentialRampToValueAtTime(0.0001, end + release);
+      p.setValueAtTime(0, t);
+      p.linearRampToValueAtTime(peak, t + attack);
+      p.setTargetAtTime(sustain, t + attack, decay / 3);
+      const rel = Math.max(end, t + attack);
+      p.setTargetAtTime(0, rel, release / 5);
+      return rel + release * 1.8;
+    }
+
+    // Percussive envelope: short linear attack, exponential-approach decay.
+    perc(gain, t, peak, attack, decay) {
+      const p = gain.gain;
+      p.setValueAtTime(0, t);
+      p.linearRampToValueAtTime(peak, t + attack);
+      p.setTargetAtTime(0, t + attack, decay / 5);
+      return t + attack + decay * 1.8;
     }
 
     kick(t, v) {
+      if (this.mute.drums || this.mute.kick) return;
       const c = this.ctx, o = c.createOscillator(), a = c.createGain();
       o.frequency.setValueAtTime(115, t); o.frequency.exponentialRampToValueAtTime(44, t + 0.09);
-      a.gain.setValueAtTime(0.0001, t); a.gain.exponentialRampToValueAtTime(v * 0.95, t + 0.004); a.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
-      o.connect(a).connect(this.drums); o.start(t); o.stop(t + 0.45);
-      const d = this.duck.gain;
-      d.setValueAtTime(1, t); d.linearRampToValueAtTime(0.62, t + 0.01); d.linearRampToValueAtTime(1, t + 0.28);
+      const end = this.perc(a, t, v * 0.95, 0.005, 0.42);
+      o.connect(a).connect(this.drums); o.start(t); o.stop(end);
+      const d = this.duck.gain; // smooth sidechain pump, never jumps
+      d.setTargetAtTime(0.65, t, 0.006);
+      d.setTargetAtTime(1, t + 0.04, 0.08);
     }
 
     snare(t, v) {
+      if (this.mute.drums || this.mute.snare) return;
       const c = this.ctx;
       const n = c.createBufferSource(); n.buffer = this.noise;
       const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1700; bp.Q.value = 0.6;
       const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 4500;
       const a = c.createGain();
-      a.gain.setValueAtTime(0.0001, t); a.gain.exponentialRampToValueAtTime(v * 0.42, t + 0.003); a.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+      const end = this.perc(a, t, v * 0.42, 0.003, 0.22);
       n.connect(bp).connect(lp).connect(a); a.connect(this.drums); a.connect(this.revSend);
-      n.start(t, Math.random() * 1.5); n.stop(t + 0.25);
+      n.start(t, Math.random() * 1.5); n.stop(end);
       const o = c.createOscillator(), ob = c.createGain(); o.type = 'triangle'; o.frequency.setValueAtTime(200, t); o.frequency.exponentialRampToValueAtTime(150, t + 0.08);
-      ob.gain.setValueAtTime(0.0001, t); ob.gain.exponentialRampToValueAtTime(v * 0.3, t + 0.003); ob.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
-      o.connect(ob).connect(this.drums); o.start(t); o.stop(t + 0.14);
+      const oend = this.perc(ob, t, v * 0.3, 0.003, 0.12);
+      o.connect(ob).connect(this.drums); o.start(t); o.stop(oend);
     }
 
     hat(t, v, open) {
+      if (this.mute.drums || this.mute.hats) return;
       const c = this.ctx;
       const n = c.createBufferSource(); n.buffer = this.noise;
       const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 5200;
-      const a = c.createGain(), len = open ? 0.28 : 0.045;
-      a.gain.setValueAtTime(0.0001, t); a.gain.exponentialRampToValueAtTime(v * 0.2, t + 0.002); a.gain.exponentialRampToValueAtTime(0.0001, t + len);
-      n.connect(hp).connect(a).connect(this.drums);
-      n.start(t, Math.random() * 1.5); n.stop(t + len + 0.02);
+      const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 9500;
+      const a = c.createGain(), len = open ? 0.3 : 0.065;
+      const end = this.perc(a, t, v * 0.15, 0.004, len);
+      n.connect(hp).connect(lp).connect(a).connect(this.drums);
+      n.start(t, Math.random() * 1.5); n.stop(end);
     }
 
     // FM electric piano (Rhodes-ish): sine carrier, 1:1 modulator with decaying index, plus a tine "ping".
@@ -294,13 +317,12 @@
       mg.gain.setValueAtTime(f * 2.4 * v, t); mg.gain.exponentialRampToValueAtTime(f * 0.3 + 1, t + 1.1);
       mod.connect(mg).connect(car.frequency);
       const tine = c.createOscillator(); tine.frequency.value = f * 14;
-      const tg = c.createGain(); tg.gain.setValueAtTime(f * 0.9 * v, t); tg.gain.exponentialRampToValueAtTime(1, t + 0.06);
+      const tg = c.createGain(); tg.gain.setValueAtTime(f * 0.45 * v, t); tg.gain.setTargetAtTime(0, t, 0.02);
       tine.connect(tg).connect(car.frequency);
       const a = c.createGain();
-      this.env(a, t, v * 0.16, 0.006, v * 0.06, 1.6, t + dur, 0.45);
+      const end = this.env(a, t, v * 0.16, 0.012, v * 0.06, 1.6, t + dur, 0.45);
       car.connect(a); a.connect(bus || this.keys); a.connect(this.revSend);
       this.detune.connect(car.detune); this.detune.connect(mod.detune);
-      const end = t + dur + 0.5;
       for (const o of [car, mod, tine]) { o.start(t); o.stop(end); }
     }
 
@@ -310,10 +332,10 @@
       const sub = c.createOscillator(); sub.frequency.value = f / 2;
       const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 520; lp.Q.value = 0.8;
       const a = c.createGain(), sg = c.createGain(); sg.gain.value = 0.35;
-      this.env(a, t, v * 0.42, 0.012, v * 0.3, 0.25, t + dur, 0.09);
+      const end = this.env(a, t, v * 0.42, 0.018, v * 0.3, 0.25, t + dur, 0.12);
       o.connect(lp); sub.connect(sg).connect(lp); lp.connect(a).connect(this.bassBus);
       this.detune.connect(o.detune);
-      for (const x of [o, sub]) { x.start(t); x.stop(t + dur + 0.15); }
+      for (const x of [o, sub]) { x.start(t); x.stop(end); }
     }
 
     lead(t, m, dur, v, inst) {
@@ -325,9 +347,9 @@
         const mod = c.createOscillator(); mod.frequency.value = f * 3.5;
         const mg = c.createGain(); mg.gain.setValueAtTime(f * 1.2, t); mg.gain.exponentialRampToValueAtTime(1, t + 0.5);
         mod.connect(mg).connect(car.frequency);
-        const a = c.createGain(); this.env(a, t, v * 0.16, 0.003, 0.0005, 1.1, t + 1.2, 0.2);
+        const a = c.createGain(); const end = this.perc(a, t, v * 0.16, 0.006, 1.2);
         car.connect(a); a.connect(this.leadBus); a.connect(this.revSend);
-        for (const o of [car, mod]) { o.start(t); o.stop(t + 1.5); }
+        for (const o of [car, mod]) { o.start(t); o.stop(end); }
         return;
       }
       // soft filtered triangle with delayed vibrato
@@ -336,10 +358,10 @@
       const vg = c.createGain(); vg.gain.setValueAtTime(0, t); vg.gain.linearRampToValueAtTime(14, t + Math.min(0.5, dur));
       vib.connect(vg).connect(o.detune);
       const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1800;
-      const a = c.createGain(); this.env(a, t, v * 0.2, 0.05, v * 0.15, 0.3, t + dur, 0.25);
+      const a = c.createGain(); const end = this.env(a, t, v * 0.2, 0.05, v * 0.15, 0.3, t + dur, 0.25);
       o.connect(lp).connect(a); a.connect(this.leadBus); a.connect(this.revSend);
       this.detune.connect(o.detune);
-      for (const x of [o, vib]) { x.start(t); x.stop(t + dur + 0.4); }
+      for (const x of [o, vib]) { x.start(t); x.stop(end); }
     }
 
     // ---- sequencing --------------------------------------------------------------------------
@@ -351,8 +373,7 @@
       this.wowAmt.gain.setTargetAtTime(this.track.wobble, this.nextTime, 1);
       const t = this.nextTime;
       this.fade.gain.cancelScheduledValues(t);
-      this.fade.gain.setValueAtTime(0.0001, t);
-      this.fade.gain.exponentialRampToValueAtTime(1, t + 4);
+      this.fade.gain.setTargetAtTime(1, t, 1.2);
       this.onTrack(this.track, t);
     }
 
@@ -379,8 +400,7 @@
         this.lp.frequency.setTargetAtTime(cut, t, s.cut === 1 ? 1.2 : 0.8);
         if (s.fade) {
           const end = t + s.bars * 16 * stepDur;
-          this.fade.gain.setValueAtTime(1, end - 6);
-          this.fade.gain.exponentialRampToValueAtTime(0.0001, end);
+          this.fade.gain.setTargetAtTime(0, end - 6, 1.6);
         }
       }
       // keys
@@ -426,9 +446,8 @@
           if (this.forceNext && this.track) {
             const t = this.nextTime;
             this.fade.gain.cancelScheduledValues(t);
-            this.fade.gain.setValueAtTime(this.fade.gain.value, t);
-            this.fade.gain.linearRampToValueAtTime(0.0001, t + 0.8);
-            this.nextTime += 1;
+            this.fade.gain.setTargetAtTime(0, t, 0.2);
+            this.nextTime += 1.2;
           }
           this.forceNext = false;
           this.newTrack();
