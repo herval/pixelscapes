@@ -50,6 +50,19 @@ Something new starts every few seconds, with ambient life (planes, birds, gulls,
 - **Seasonal:** a witch in October and Santa in December.
 - **Always on:** a foreground promenade with walkers, joggers, cyclists, dog walkers (and the odd dachshund), people on benches, steam vents, waving flags, flickering neon, TV-lit windows and traffic.
 
+## Music: Pixelscapes FM
+
+An endless lo-fi radio, generated entirely in code with the Web Audio API (no samples, no network).
+
+- **Sound:** a Rhodes-style electric piano (FM synthesis) playing jazzy 7th/9th chords with close voice leading, a warm triangle-and-sub bass, and swung boom-bap drums with ghost notes and fills. The kick gently ducks the other instruments, and there's an occasional melody on soft lead, electric piano or celesta.
+- **Lo-fi texture:** vinyl crackle and hiss, tape wow and flutter, a low-pass filter, soft saturation and reverb.
+- **Every track is new:** each gets its own key, tempo, chord progression, grooves, motif and structure (intro, verse, chorus, break, outro), plus a generated name. When one ends, the next is generated.
+- **Follows the scene:** slower, darker and more often minor at night and in the rain, with the rain itself mixed in. Celesta melodies are more likely in winter.
+
+Press `M` to turn it on or off (it's remembered), `T` for the next track, and `−` / `+` for volume. `?music=1` starts it on load and `?music=0` disables it. Browsers only allow sound after a click or keypress, so if autoplay is blocked it shows "click or press M for music".
+
+`node tools/render-music.mjs out.wav 180 7 '{"night":1,"rain":0.5}'` renders a track offline to a WAV file (duration, seed, mood) and prints level stats.
+
 ## Use as a wallpaper
 
 - **macOS:** [Plash](https://sindresorhus.com/plash) → add website → `file:///path/to/pixelscapes/index.html`
@@ -74,11 +87,12 @@ Something new starts every few seconds, with ambient life (planes, birds, gulls,
 | `weather` | `live` | `live`, `city`, `off`, or a preset (`clear`, `cloudy`, `overcast`, `fog`, `drizzle`, `rain`, `storm`, `snow`, `blizzard`, `windy`) |
 | `date` | today | preview a date (seasons, holidays), e.g. `date=2026-10-31` |
 | `units` | auto | `c` or `f` for the caption temperature |
+| `music` | remembered | `1` to play the lo-fi radio, `0` to disable it |
 | `debug` | | show a debug overlay |
 
 ## Keys
 
-`E` random event · `N` cycle through events · `W` cycle weather · `[` / `]` move time back/forward 30 min · `\` back to now · `P` pause the pan · `F` fullscreen · `D` debug · `H` help. Double-click for a surprise.
+`E` random event · `N` cycle through events · `W` cycle weather · `M` music · `T` next track · `−`/`+` volume · `[` / `]` move time back/forward 30 min · `\` back to now · `P` pause the pan · `F` fullscreen · `D` debug · `H` help. Double-click for a surprise.
 
 ## Performance
 
@@ -96,6 +110,7 @@ To profile, run `node tools/perf.mjs [--webkit] [--gpu] [--dpr=2] [--size=1512x9
 - `js/nyc.js`: New York (skyline envelope, landmarks, bridge, statue, shore)
 - `js/events.js`: all random events and their sprites
 - `js/promenade.js`: the foreground promenade and its passers-by
+- `js/music.js`: Pixelscapes FM, the generative lo-fi radio
 - `js/main.js`: engine (layers, parallax, reflections, clouds, stars, scheduler, input)
 
 To add a city, write `PS.cities.<name>` in a file shaped like `nyc.js`, then load it with `?city=<name>`.

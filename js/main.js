@@ -24,6 +24,7 @@
     cam: q.has('cam') ? num('cam', 0) : null,
     weather: q.get('weather') || 'live',   // live | city | off | clear | cloudy | overcast | fog | drizzle | rain | storm | snow | blizzard | windy
     date: q.get('date'),                   // YYYY-MM-DD, to preview seasons and holidays
+    music: q.get('music'),                 // 1/on: play lo-fi radio (needs a click/keypress if autoplay is blocked); 0: never
     units: q.get('units') || (/^en-US|^en-LR|^my/.test(navigator.language || '') ? 'f' : 'c'),
   };
 
@@ -635,6 +636,60 @@
     ctx.globalAlpha = 1;
   }
 
+  // --- music: Pixelscapes FM -----------------------------------------------------------------
+  const musicState = { actx: null, engine: null, on: false, blocked: false, now: null, lastAmb: 0 };
+  const musicPref = () => { if (cfg.music === '0') return false; if (cfg.music) return true; try { return localStorage.getItem('pixelscapes.music') === '1'; } catch (e) { return false; } };
+  const musicMood = () => ({ night: P.dark, rain: weather.cur.rain, snow: weather.cur.snow, season: season ? season.name : null });
+  function musicOn() {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (!musicState.actx) {
+      musicState.actx = new AC();
+      musicState.engine = new PS.Lofi(musicState.actx, {
+        getMood: musicMood,
+        volume: (() => { try { return +(localStorage.getItem('pixelscapes.volume') || 0.6); } catch (e) { return 0.6; } })(),
+        onTrack: (tr, at) => { musicState.now = { title: tr.title, at: performance.now() + (at - musicState.actx.currentTime) * 1000, bpm: tr.bpm }; },
+      });
+    }
+    musicState.on = true;
+    musicState.actx.resume().then(() => { musicState.blocked = false; }).catch(() => {});
+    musicState.engine.start();
+    musicState.blocked = musicState.actx.state !== 'running';
+    try { localStorage.setItem('pixelscapes.music', '1'); } catch (e) { /* ignore */ }
+  }
+  function musicOff() {
+    musicState.on = false;
+    if (musicState.actx) { musicState.engine.stop(); musicState.actx.suspend(); }
+    try { localStorage.setItem('pixelscapes.music', '0'); } catch (e) { /* ignore */ }
+  }
+  function musicTick() {
+    if (!musicState.on || !musicState.engine) return;
+    if (musicState.blocked && musicState.actx.state === 'running') musicState.blocked = false;
+    if (performance.now() - musicState.lastAmb > 1000) { musicState.lastAmb = performance.now(); musicState.engine.setAmbience(musicMood()); }
+  }
+  function drawMusic() {
+    if (!musicState.on) return;
+    if (musicState.blocked) {
+      const msg = 'CLICK OR PRESS M FOR MUSIC';
+      if (Math.floor(t * 1.2) % 2) return;
+      pS.text(msg, VW - PS.textWidth(msg) - 6, 16, 'rgba(255,255,255,0.7)');
+      return;
+    }
+    const np = musicState.now;
+    if (!np) return;
+    const age = (performance.now() - np.at) / 1000;
+    if (age < 0 || age > 9) return;
+    const a = Math.min(1, age, (9 - age) / 2);
+    const msg = `♪ PIXELSCAPES FM  ${np.title}`;
+    ctx.globalAlpha = a;
+    pS.text(msg, VW - PS.textWidth(msg) - 5, 17, 'rgba(0,0,0,0.5)');
+    pS.text(msg, VW - PS.textWidth(msg) - 6, 16, '#f4f0e6');
+    ctx.globalAlpha = 1;
+  }
+  const gesture = () => { if (musicState.on && musicState.blocked) musicOn(); };
+  window.addEventListener('pointerdown', gesture);
+  window.addEventListener('keydown', gesture, true);
+
   function drawToast() {
     if (!toast) return;
     toast.t -= 1 / cfg.fps;
@@ -767,6 +822,8 @@
     mark('hud');
     drawLabel();
     drawToast();
+    musicTick();
+    drawMusic();
     drawDebug(fpsShown);
     mark(null);
   }
@@ -790,7 +847,16 @@
     else if (k === 'f') { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => {}); }
     else if (k === 'h' || k === '?') help.classList.toggle('show');
     else if (k === 'd') cfg.debug = !cfg.debug;
-    else if (k === 'w') {
+    else if (k === 'm') {
+      if (musicState.on && !musicState.blocked) { musicOff(); toast = { msg: 'MUSIC OFF', t: 1.5 }; }
+      else { musicOn(); toast = { msg: 'PIXELSCAPES FM', t: 1.5 }; }
+    } else if (k === 't' && musicState.on) { musicState.engine.next(); toast = { msg: 'NEXT TRACK', t: 1.5 }; }
+    else if ((k === '-' || k === '=' || k === '+') && musicState.engine) {
+      const v = Math.max(0, Math.min(1, musicState.engine.volume + (k === '-' ? -0.1 : 0.1)));
+      musicState.engine.setVolume(v);
+      try { localStorage.setItem('pixelscapes.volume', String(v)); } catch (e) { /* ignore */ }
+      toast = { msg: `VOLUME ${Math.round(v * 10)}`, t: 1.5 };
+    } else if (k === 'w') {
       const names = ['live', 'clear', 'cloudy', 'overcast', 'fog', 'drizzle', 'rain', 'storm', 'snow', 'blizzard', 'windy'];
       wxCycle = (wxCycle + 1) % names.length;
       weather.setPreset(names[wxCycle]);
@@ -807,7 +873,9 @@
   renderAll(simNow());
   if (cfg.event) setTimeout(() => cfg.event.split(',').forEach((id) => spawn(id)), 300);
   requestAnimationFrame(frame);
+  if (musicPref()) musicOn();
   window.pixelscapes = {
+    music: musicState,
     get fps() { return fpsShown; },
     profile() { const out = {}; for (const k in prof.acc) out[k] = +(prof.acc[k] / prof.frames).toFixed(2); out.frames = prof.frames; out.renderMax = prof.renderMax; return out; }, spawn, S, cfg, setCam: (x) => { cam = x; }, render: () => { dirty = true; } };
 })();
